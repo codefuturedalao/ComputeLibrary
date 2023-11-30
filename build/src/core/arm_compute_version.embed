@@ -1,0 +1,1 @@
+"arm_compute_version=v23.11 Build options: {'Werror': '1', 'debug': '0', 'asserts': '1', 'neon': '1', 'opencl': '1', 'embed_kernels': '1', 'os': 'android', 'arch': 'armv8a'} Git hash=b'add70ace1e57f65d1ae4d0cedaec6e4578cf87ff'"
