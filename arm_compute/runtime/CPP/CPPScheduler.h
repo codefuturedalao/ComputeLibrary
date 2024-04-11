@@ -70,6 +70,7 @@ protected:
 
 private:
     struct Impl;
+    //int _threads_time[4];
     std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute

@@ -30,6 +30,7 @@
 
 #include <functional>
 #include <limits>
+#include <fstream>
 
 namespace arm_compute
 {
@@ -133,11 +134,22 @@ public:
     };
     /** Signature for the workloads to execute */
     using Workload = std::function<void(const ThreadInfo &)>;
+    static std::mutex mtx;     //file mutex
+    static std::ofstream _outputFile;
+    static bool sw_flag;
+    static const int capacity_arg;
+    static const int capacity_arg_tagged;
+    static const int num_it;
+    static std::vector<int> sched_latency;  //interval - max
+    static std::vector<int> wait_latency;   //max - min
+                                               static std::vector<int> workload_time;
+    static void write_to_log_file(const std::string& message);
     /** Default constructor. */
     IScheduler();
 
     /** Destructor. */
-    virtual ~IScheduler() = default;
+    //virtual ~IScheduler() = default;
+    virtual ~IScheduler();
 
     /** Sets the number of threads the scheduler will use to run the kernels.
      *
@@ -214,6 +226,10 @@ protected:
      * @param[in] tensors Vector containing the tensors to operate on.
      */
     void schedule_common(ICPPKernel *kernel, const Hints &hints, const Window &window, ITensorPack &tensors);
+
+
+    static bool set_policy_frequency(int policy_idx, int freq);
+    static bool set_gpu_clk(int clk);
 
     /** Adjust the number of windows to the optimize performance
      * (used for small workloads where smaller number of threads might improve the performance)

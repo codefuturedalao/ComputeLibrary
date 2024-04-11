@@ -35,6 +35,7 @@
 #include "src/core/helpers/WindowHelpers.h"
 
 #include <arm_neon.h>
+#include <unistd.h>
 
 namespace arm_compute
 {
@@ -385,6 +386,59 @@ inline void vst1q_u32_x2_(const uint32_t *ptr, const uint32x4x2_t &val)
     vst1q_u32(const_cast<uint32_t *>(ptr + 4), val.val[1]);
 }
 
+/*
+bool set_policy_frequency(int policy_idx, int freq) {
+    std::string str = "/sys/devices/system/cpu/cpufreq/policy" + std::to_string(policy_idx) + "/scaling_max_freq";
+    std::ofstream file(str);
+
+    if (!file.is_open()) {
+        std::cerr << "Failed to open " << str << std::endl;
+        return false;
+    }
+
+    file << freq;
+
+    file.close();
+
+    if(!file) {
+        //std::cerr << "Failed to write to " << str << std::endl;
+        return false;
+    } else {
+        //std::cout << "Successfully wrote " << freq << " to " << str << std::endl;
+        return true;
+    }
+}
+*/
+
+int get_thread_affinity() {
+    cpu_set_t set;
+    pid_t tid = gettid();
+
+    CPU_ZERO(&set);
+    ARM_COMPUTE_EXIT_ON_MSG(sched_getaffinity(tid, sizeof(cpu_set_t), &set), "Error getting thread affinity");
+    for(int i = 0; i < CPU_SETSIZE; i++) {
+        if(CPU_ISSET(i, &set)) {
+            return i;
+        }
+    }
+    return 1024;    //make sure > 4
+}
+
+void set_thread_affinity(int core_id)
+{
+    if (core_id < 0)
+    {
+        return;
+    }
+
+#if !defined(_WIN64) && !defined(__APPLE__) && !defined(__OpenBSD__)
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(core_id, &set);
+    ARM_COMPUTE_EXIT_ON_MSG(sched_setaffinity(0, sizeof(set), &set), "Error setting thread affinity");
+#endif /* !defined(__APPLE__) && !defined(__OpenBSD__) */
+}
+
 void transpose_32bit_elements(const ITensor *in, ITensor *out, const Window &window)
 {
     constexpr int window_step_x            = 8;
@@ -399,6 +453,12 @@ void transpose_32bit_elements(const ITensor *in, ITensor *out, const Window &win
 
     // Check if we need a left-over loop for the y dimension
     bool left_over_loop_y = (((window_end_y - window_start_y) % window_step_y) != 0);
+    //std::cout << "left_over_loop_y" << std::to_string(left_over_loop_y) << std::endl;
+    //int numeration_y = window.num_iterations(1); 
+    if(left_over_loop_y == 1) {
+        std::cout << "end_y" << window_end_y << std::endl;
+        std::cout << "start_y" << window_start_y << std::endl;
+    }
 
     Window window_in(window);
     window_in.set(Window::DimX, Window::Dimension(0, 1, 1));
@@ -577,6 +637,13 @@ void transpose_32bit_elements(const ITensor *in, ITensor *out, const Window &win
 
     if (left_over_loop_y)
     {
+        int core_id = get_thread_affinity();
+        pid_t tid = gettid();
+        std::cout << "tid " << tid << " core_id " << core_id << std::endl;
+        if(core_id < 4) {
+            std::cout << "Move to big" << std::endl;
+            set_thread_affinity(6);
+        }
         window_in.set(Window::DimX, Window::Dimension(window.x().start(), window.x().end(), 1));
         window_in.set(Window::DimY, Window::Dimension(window_end_y_multiple_of, window_end_y, 1));
 
@@ -596,6 +663,11 @@ void transpose_32bit_elements(const ITensor *in, ITensor *out, const Window &win
                 *(reinterpret_cast<uint32_t *>(output.ptr() + dst_offset_in_bytes)) = val0;
             },
             input, output);
+            //set_policy_frequency(0, 1785600);
+            if(core_id < 4) {
+                std::cout << "Move to little" << std::endl;
+                set_thread_affinity(2);
+            }
     }
 }
 #else  // __aarch64__

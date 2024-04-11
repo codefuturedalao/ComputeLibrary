@@ -50,6 +50,7 @@ public:
      * @param[in] name Stream name
      */
     Stream(size_t id, std::string name);
+    ~Stream();
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     Stream(const Stream &) = delete;
     /** Prevent instances of this class from being copied (As this class contains pointers) */

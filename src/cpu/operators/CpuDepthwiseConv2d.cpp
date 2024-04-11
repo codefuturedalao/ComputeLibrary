@@ -157,6 +157,7 @@ Status CpuDepthwiseConv2d::CpuDepthwiseConv2dOptimizedInternal::validate(const I
 void CpuDepthwiseConv2d::CpuDepthwiseConv2dOptimizedInternal::run(ITensorPack &tensors)
 {
     ARM_COMPUTE_ERROR_ON_MSG(tensors.empty(), "No inputs provided");
+    //std::cout << "Optimized Internal " << std::endl;
     prepare(tensors);
 
     auto bias           = tensors.get_const_tensor(TensorType::ACL_SRC_2);
@@ -204,6 +205,7 @@ void CpuDepthwiseConv2d::CpuDepthwiseConv2dOptimizedInternal::run(ITensorPack &t
         pack.add_tensor(TensorType::ACL_INT_0, workspace);
         pack.add_tensor(TensorType::ACL_INT_1, packed_weights);
         pack.add_tensor(TensorType::ACL_DST, dst);
+        //std::cout << "non nchw optimized_func " << std::endl;
         _dwc_optimized_func->run(pack);
     }
 
@@ -543,6 +545,7 @@ void CpuDepthwiseConv2d::run(ITensorPack &tensors)
             _func_optimized.run(tensors);
             break;
         case DepthwiseConvolutionFunction::GENERIC:
+            _func_optimized.run(tensors);
             _func_generic.run(tensors);
             break;
         default:

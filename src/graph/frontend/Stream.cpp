@@ -25,6 +25,7 @@
 
 #include "arm_compute/graph/frontend/ILayer.h"
 #include "arm_compute/graph/Utils.h"
+#include "arm_compute/runtime/IScheduler.h"
 
 namespace arm_compute
 {
@@ -34,6 +35,13 @@ namespace frontend
 {
 Stream::Stream(size_t id, std::string name) : _ctx(), _manager(), _g(id, std::move(name))
 {
+}
+
+Stream::~Stream()
+{
+    std::cout << "size " << IScheduler::sched_latency.size() << std::endl;
+    std::cout << "sched_latency: " << std::accumulate(IScheduler::sched_latency.begin(), IScheduler::sched_latency.end(), 0) << std::endl;
+    std::cout << "wait_latency: " << std::accumulate(IScheduler::wait_latency.begin(), IScheduler::wait_latency.end(), 0) << std::endl;
 }
 
 void Stream::finalize(Target target, const GraphConfig &config)

@@ -200,6 +200,28 @@ inline constexpr size_t Window::num_iterations(size_t dimension) const
     return (_dims.at(dimension).end() - _dims.at(dimension).start()) / _dims.at(dimension).step();
 }
 
+inline bool Window::set_policy_frequency(int policy_idx, int freq) const {
+    std::string str = "/sys/devices/system/cpu/cpufreq/policy" + std::to_string(policy_idx) + "/scaling_max_freq";
+    std::ofstream file(str);
+
+    if (!file.is_open()) {
+        std::cerr << "Failed to open " << str << std::endl;
+        return false;
+    }
+
+    file << freq;
+
+    file.close();
+
+    if(!file) {
+        //std::cerr << "Failed to write to " << str << std::endl;
+        return false;
+    } else {
+        //std::cout << "Successfully wrote " << freq << " to " << str << std::endl;
+        return true;
+    }
+}
+
 inline Window Window::split_window(size_t dimension, size_t id, size_t total) const
 {
     ARM_COMPUTE_ERROR_ON(id >= total);
@@ -211,30 +233,102 @@ inline Window Window::split_window(size_t dimension, size_t id, size_t total) co
     {
         if (d == dimension)
         {
-            int       start = _dims[d].start();
-            int       end   = _dims[d].end();
-            const int step  = _dims[d].step();
-
+            //under test
             const int num_it = num_iterations(d);
-            const int rem    = num_it % total;
-            int       work   = num_it / total;
+            if(total == 4 && num_it >= IScheduler::num_it && IScheduler::sw_flag == true) {
+                int capacity_arg = IScheduler::capacity_arg;
+                int big_thread_num = 2;
+                int little_thread_num = 2;
+                int       start = _dims[d].start();
+                int       end   = _dims[d].end();
+                const int step  = _dims[d].step();
 
-            int it_start = work * id;
+                const int rem    = num_it % (big_thread_num * capacity_arg + little_thread_num);
+                int       work   = num_it / (big_thread_num * capacity_arg + little_thread_num);
+                const int work_3 = rem / big_thread_num;
 
-            if (int(id) < rem)
-            {
-                ++work;
-                it_start += id;
+                switch(id){
+                    case 0:
+                        start += 0;
+                        end = std::min(end, start + work * step * capacity_arg + work_3 * step);
+                        break;
+                    case 1:
+                        start += work * id * capacity_arg * step + work_3 * step;
+                        end = std::min(end, start + work * step * capacity_arg + work_3 * step);
+                        break;
+                    case 2:
+                        start += work * id * capacity_arg * step + work_3 * id * step;
+                        end = std::min(end, start + work * step);
+                        break;
+                    case 3:
+                        start += work * big_thread_num * capacity_arg * step + work * (little_thread_num - 1) * step + work_3 * big_thread_num * step;
+                        //end donesn't change
+                        break;
+                } 
+
+                //std::cout << "start " << start << "end " << end << std::endl;
+                /*
+                start += it_start * step;
+                end = std::min(end, start + work * step);
+                */
+
+                out.set(d, Dimension(start, end, step));
+
+            } else if(total == 3 && num_it >= IScheduler::num_it && IScheduler::sw_flag == true) {
+                int capacity_arg = IScheduler::capacity_arg;
+                int big_thread_num = 2;
+                int little_thread_num = 1;
+                int       start = _dims[d].start();
+                int       end   = _dims[d].end();
+                const int step  = _dims[d].step();
+
+                const int rem    = num_it % (big_thread_num * capacity_arg + little_thread_num);
+                int       work   = num_it / (big_thread_num * capacity_arg + little_thread_num);
+                const int work_3 = rem / big_thread_num;
+
+                switch(id){
+                    case 0:
+                        start += 0;
+                        end = std::min(end, start + work * step * capacity_arg + work_3 * step);
+                        break;
+                    case 1:
+                        start += work * id * capacity_arg * step + work_3 * step;
+                        end = std::min(end, start + work * step * capacity_arg + work_3 * step);
+                        break;
+                    case 2:
+                        start += work * id * capacity_arg * step + work_3 * id * step;
+                //        end = std::min(end, start + work * step);
+                        break;
+                }
+
+                out.set(d, Dimension(start, end, step));
+
+            } else {
+                int       start = _dims[d].start();
+                int       end   = _dims[d].end();
+                const int step  = _dims[d].step();
+
+                //const int num_it = num_iterations(d);
+                const int rem    = num_it % total;
+                int       work   = num_it / total;
+
+                int it_start = work * id;
+
+                if (int(id) < rem)
+                {
+                    ++work;
+                    it_start += id;
+                }
+                else
+                {
+                    it_start += rem;
+                }
+
+                start += it_start * step;
+                end = std::min(end, start + work * step);
+
+                out.set(d, Dimension(start, end, step));
             }
-            else
-            {
-                it_start += rem;
-            }
-
-            start += it_start * step;
-            end = std::min(end, start + work * step);
-
-            out.set(d, Dimension(start, end, step));
         }
         else
         {

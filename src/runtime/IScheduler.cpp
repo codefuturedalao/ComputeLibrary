@@ -30,13 +30,55 @@
 
 #include "src/common/cpuinfo/CpuInfo.h"
 #include "src/runtime/SchedulerUtils.h"
+#include <chrono>
+#include <ctime>
+#include <iostream>
+#include <sstream>
 
 namespace arm_compute
 {
+std::mutex IScheduler::mtx;
+std::ofstream IScheduler::_outputFile;
+bool IScheduler::sw_flag = false;
+const int IScheduler::capacity_arg = 4;
+const int IScheduler::capacity_arg_tagged = 7;
+const int IScheduler::num_it = capacity_arg * 2 + 2;
+std::vector<int> IScheduler::sched_latency;  //interval - max
+std::vector<int> IScheduler::wait_latency;   //max - min
+std::vector<int> IScheduler::workload_time;
 IScheduler::IScheduler()
 {
     // Work out the best possible number of execution threads
     _num_threads_hint = cpuinfo::num_threads_hint();
+    std::cout << "IScheduler::num_it " << IScheduler::num_it << " " << std::to_string(sw_flag) << std::endl;
+}
+
+IScheduler::~IScheduler()
+{
+    if(_outputFile.is_open()) {
+        _outputFile.close();
+    }
+}
+
+void IScheduler::write_to_log_file(const std::string& message) {
+    //return ;
+    std::lock_guard<std::mutex> lock(mtx);
+    if(_outputFile.is_open()) {
+        _outputFile << message << std::endl;
+    } else {
+        //Initialize first time
+        auto now = std::chrono::system_clock::now();
+        auto now_c = std::chrono::system_clock::to_time_t(now);
+        std::string timestamp = std::to_string(now_c);
+        std::string filename = "/data/local/tmp/example_" + timestamp + ".csv";
+        _outputFile.open(filename);
+        if(_outputFile.is_open()) {
+            _outputFile << "Kernel_Name, workload, wl_time, sum_time" << std::endl;
+            _outputFile << message << std::endl;
+        } else {
+            std::cout << "Failed to open file. " << std::endl;
+        }
+    }
 }
 
 CPUInfo &IScheduler::cpu_info()
@@ -60,12 +102,20 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
     ARM_COMPUTE_ERROR_ON_MSG(!kernel, "The child class didn't set the kernel");
 #ifndef BARE_METAL
     const Window &max_window = window;
+    std::cout << "---------" << kernel->name()  << "--------" << std::endl;
+    std::stringstream ss;
+    ss << kernel->name() << ", x, " << max_window.num_iterations(hints.split_dimension()) << ", 0";
+    std::string kernel_name = ss.str();
+    IScheduler::write_to_log_file(kernel_name);
+    IScheduler::workload_time.clear();
+    auto start = std::chrono::high_resolution_clock::now();
     if (hints.split_dimension() == IScheduler::split_dimensions_all)
     {
         /*
          * if the split dim is size_t max then this signals we should parallelise over
          * all dimensions
          */
+        //std::cout << "parallelise all dimension" << std::endl;
         const std::size_t m = max_window.num_iterations(Window::DimX);
         const std::size_t n = max_window.num_iterations(Window::DimY);
 
@@ -101,8 +151,34 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
     }
     else
     {
+        //std::cout << "We got split-dimension" << hints.split_dimension() << std::endl;
         const unsigned int num_iterations = max_window.num_iterations(hints.split_dimension());
-        const unsigned int num_threads    = std::min(num_iterations, this->num_threads());
+        unsigned int num_threads    = std::min(num_iterations, this->num_threads());
+        /*
+        std::vector<std::string> non_interation_kernel = {"CpuDepthwiseConv2dAssemblyWrapperKernel", 
+                                        "CpuWinogradConv2dTransformInputKernel",
+                                        "CpuWinogradConv2dTransformOutputKernel",
+                                        "CpuPool2dAssemblyWrapperKernel",
+                                        "CPPNonMaximumSuppressionKernel",
+                                        "CpuReshapeKernel",
+                                        "CPPBoxWithNonMaximaSuppresionLimitKernel"};
+        for(const std::string& str : non_interation_kernel) {
+            if(std::strstr(kernel->name(), str.c_str()) != nullptr) {
+                num_threads = 1;
+                break;
+            }
+            if(std::strstr(kernel->name(), "CpuTransposeKernel") != nullptr) {
+                num_threads = 2;
+                break;
+            }
+            if(std::strstr(kernel->name(), "CpuPermuteKernel") != nullptr) {
+                num_threads = 2;
+                break;
+            }
+        }
+        */
+        //std::cout << "num_interations" << num_iterations << std::endl;
+        //std::cout << "num_threads" << num_threads << std::endl;
 
         if (num_iterations == 0)
         {
@@ -111,6 +187,7 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
 
         if (!kernel->is_parallelisable() || num_threads == 1)
         {
+            //IScheduler::set_policy_frequency(4, 2419200);
             ThreadInfo info;
             info.cpu_info = &cpu_info();
             if (tensors.empty())
@@ -128,10 +205,12 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
             switch (hints.strategy())
             {
                 case StrategyHint::STATIC:
+                    //std::cout << "split the windows with strategy static" << std::endl;
                     num_windows = num_threads;
                     break;
                 case StrategyHint::DYNAMIC:
                 {
+                    //std::cout << "split the windows with strategy dynamic" << std::endl;
                     const unsigned int granule_threshold =
                         (hints.threshold() <= 0) ? num_threads : static_cast<unsigned int>(hints.threshold());
                     // Make sure we don't use some windows which are too small as this might create some contention on the ThreadFeeder
@@ -142,17 +221,62 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
                     ARM_COMPUTE_ERROR("Unknown strategy");
             }
             // Make sure the smallest window is larger than minimum workload size
+            //std::cout << "num_windows" << num_windows << std::endl;
             num_windows = adjust_num_of_windows(max_window, hints.split_dimension(), num_windows, *kernel, cpu_info());
+            //std::cout << "adjusted num_windows" << num_windows << std::endl;
 
             std::vector<IScheduler::Workload> workloads(num_windows);
             for (unsigned int t = 0; t < num_windows; ++t)
             {
                 //Capture 't' by copy, all the other variables by reference:
+                //Window win = max_window.split_window(hints.split_dimension(), t, num_windows);
+                //win.validate();
                 workloads[t] = [t, &hints, &max_window, &num_windows, &kernel, &tensors](const ThreadInfo &info)
+                //workloads[t] = [&kernel, &tensors, &win](const ThreadInfo &info)
                 {
+                    //auto start = std::chrono::high_resolution_clock::now();
                     Window win = max_window.split_window(hints.split_dimension(), t, num_windows);
                     win.validate();
+                    //std::cout << "win" << t << " " << win.shape() << std::endl;
+                    //std::cout << "win" << t << " " << win.num_iterations(hints.split_dimension()) << std::endl;
+                    //std::cout << "win" << t << " " << win.y().end() << " " << win.y().start() << std::endl;
+                    //DVFS
+                    /*
+                    const int num_it = max_window.num_iterations(hints.split_dimension());
+                    if(num_windows == 4 && num_it >= 12 && sw_flag == true) {
+                        switch(t){
+                            case 0:
+                            case 1:
+                                IScheduler::set_policy_frequency(4, 2419200);
+                                break;
+                            case 2:
+                                break;
+                            case 3:
+                                IScheduler::set_policy_frequency(0, 1785600);
+                                break;
+                        } 
+                    } else {
+                        if(num_windows == 4) {
+                            switch(t){
+                                case 0:
+                                case 1:
+                                    IScheduler::set_policy_frequency(4, 940800);
+                                    break;
+                                case 2:
+                                    break;
+                                case 3: 
+                                    IScheduler::set_policy_frequency(0, 1785600);
+                                    break;
+                            } 
 
+
+                        }
+                    }
+                    */
+
+                    //auto end = std::chrono::high_resolution_clock::now();
+                    //auto duration_memcpy = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+                    //std::cout << " win*" << t << duration_memcpy << std::endl;
                     if (tensors.empty())
                     {
                         kernel->run(win, info);
@@ -163,12 +287,82 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
                     }
                 };
             }
+            
+            auto workload_start = std::chrono::high_resolution_clock::now();
             run_workloads(workloads);
+            auto workload_end = std::chrono::high_resolution_clock::now();
+            auto duration_sum_workload = std::chrono::duration_cast<std::chrono::microseconds>(workload_end - workload_start).count();
+            if(!IScheduler::workload_time.empty()) {
+                int min_val = *std::min_element(IScheduler::workload_time.begin(), IScheduler::workload_time.end());
+                int max_val = *std::max_element(IScheduler::workload_time.begin(), IScheduler::workload_time.end());
+                IScheduler::wait_latency.push_back(max_val - min_val);
+                IScheduler::sched_latency.push_back(duration_sum_workload - max_val);
+                //IScheduler::workload_time.clear();
+                std::cout << " --------( " << max_val << " --- " << min_val << " )--------"<< std::endl;
+                std::cout << " --------( " << max_val - min_val << " " << duration_sum_workload - max_val << " )--------"<< std::endl;
+            }
         }
     }
 #else  /* !BARE_METAL */
     ARM_COMPUTE_UNUSED(kernel, hints, window, tensors);
 #endif /* !BARE_METAL */
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration_kernel = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    //ARM_COMPUTE_UNUSED(duration);
+    std::cout << " ********( " << duration_kernel << " )********"<< std::endl;
+    ss.str("");
+    if(!IScheduler::workload_time.empty()) {
+        ss << kernel->name() << ", " << IScheduler::wait_latency.back() << ", " << IScheduler::sched_latency.back() << ", " << duration_kernel;
+        IScheduler::workload_time.clear();
+    } else {
+        ss << kernel->name() << ", x, 0, " << duration_kernel;
+    }
+    std::string duration_k= ss.str();
+    IScheduler::write_to_log_file(duration_k);
+}
+
+bool IScheduler::set_gpu_clk(int clk) {
+    std::string str = "/sys/class/kgsl/kgsl-3d0/min_clock_mhz";
+    std::ofstream file(str);
+
+    if (!file.is_open()) {
+        std::cerr << "Failed to open " << str << std::endl;
+        return false;
+    }
+
+    file << clk;
+
+    file.close();
+
+    if(!file) {
+        //std::cerr << "Failed to write to " << str << std::endl;
+        return false;
+    } else {
+        //std::cout << "Successfully wrote " << clk << " to " << str << std::endl;
+        return true;
+    }
+}
+
+bool IScheduler::set_policy_frequency(int policy_idx, int freq) {
+    std::string str = "/sys/devices/system/cpu/cpufreq/policy" + std::to_string(policy_idx) + "/scaling_max_freq";
+    std::ofstream file(str);
+
+    if (!file.is_open()) {
+        std::cerr << "Failed to open " << str << std::endl;
+        return false;
+    }
+
+    file << freq;
+
+    file.close();
+
+    if(!file) {
+        std::cerr << "Failed to write to " << str << std::endl;
+        return false;
+    } else {
+        //std::cout << "Successfully wrote " << freq << " to " << str << std::endl;
+        return true;
+    }
 }
 
 void IScheduler::run_tagged_workloads(std::vector<Workload> &workloads, const char *tag)

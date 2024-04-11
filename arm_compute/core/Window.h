@@ -25,6 +25,7 @@
 #define ACL_ARM_COMPUTE_CORE_WINDOW_H
 
 #include "arm_compute/core/Coordinates.h"
+#include "arm_compute/runtime/IScheduler.h"
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/ITensorInfo.h"
 #include "arm_compute/core/utils/math/Math.h"
@@ -32,6 +33,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <fstream>
 
 namespace arm_compute
 {
@@ -455,6 +457,7 @@ private:
      */
     template <unsigned int window_dimension>
     bool slide_window_slice(Window &slice) const;
+    bool set_policy_frequency(int policy_idx, int freq) const;
 
 private:
     std::array<Dimension, Coordinates::num_max_dimensions> _dims;

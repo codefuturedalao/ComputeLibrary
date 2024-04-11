@@ -446,6 +446,7 @@ uint32_t num_threads_hint()
 
     // Set thread hint
     num_threads_hint = cpus.empty() ? std::thread::hardware_concurrency() : least_frequent_cpu_occurences(cpus);
+    std::cout << "num_threads_hint" << num_threads_hint;
 #endif /* !defined(BARE_METAL) && !defined(_WIN64) && !defined(ARM_COMPUTE_DISABLE_THREADS_HINT) */
 
     return num_threads_hint;

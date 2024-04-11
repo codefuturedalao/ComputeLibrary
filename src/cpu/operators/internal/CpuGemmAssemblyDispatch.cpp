@@ -54,6 +54,29 @@ namespace
  * @param[in] src_multi_stride Stride in z ("multi")
  * @param[in] num_threads      Number of threads to run this method. Must be >= 1
  */
+/*
+bool set_policy_frequency(int policy_idx, int freq) {
+    std::string str = "/sys/devices/system/cpu/cpufreq/policy" + std::to_string(policy_idx) + "/scaling_max_freq";
+    std::ofstream file(str);
+
+    if (!file.is_open()) {
+        std::cerr << "Failed to open " << str << std::endl;
+        return false;
+    }
+
+    file << freq;
+
+    file.close();
+
+    if(!file) {
+        //std::cerr << "Failed to write to " << str << std::endl;
+        return false;
+    } else {
+        //std::cout << "Successfully wrote " << freq << " to " << str << std::endl;
+        return true;
+    }
+}
+*/
 template <typename TypeInput, typename TypeOutput>
 void run_parallel_pretranspose_B_array(arm_gemm::GemmCommon<TypeInput, TypeOutput> *gemm_asm,
                                        ITensor                                     *dst,
@@ -68,18 +91,87 @@ void run_parallel_pretranspose_B_array(arm_gemm::GemmCommon<TypeInput, TypeOutpu
     const unsigned int wsize = gemm_asm->get_B_pretranspose_window_size();
 
     std::vector<IScheduler::Workload> workloads(num_threads);
+    //std::cout << "winsize " << wsize << std::endl;
     for (unsigned int t = 0; t < num_threads; ++t)
     {
-        workloads[t] = [=](const ThreadInfo &info)
-        {
-            const unsigned int start = (info.thread_id * wsize) / num_threads;
-            const unsigned int end   = ((info.thread_id + 1) * wsize) / num_threads;
-
-            if (start < end)
+        if(num_threads == 4 && wsize >= (unsigned int)IScheduler::num_it && IScheduler::sw_flag == true) {
+            workloads[t] = [=](const ThreadInfo &info)
             {
-                gemm_asm->pretranspose_B_array_part(dst->buffer(), src, src_ld, src_multi_stride, start, end);
-            }
-        };
+                int capacity_arg = IScheduler::capacity_arg_tagged;
+                int big_thread_num = 2;
+                int little_thread_num = 2;
+                const int rem    = wsize % (big_thread_num * capacity_arg + little_thread_num);
+                int       work   = wsize / (big_thread_num * capacity_arg + little_thread_num);
+                unsigned int start = 0;
+                unsigned int end = wsize;
+                int step = 1;
+                const int work_3 = rem / big_thread_num;
+                switch(info.thread_id){
+                    case 0:
+                        start += 0;
+                        end = std::min(end, start + work * step * capacity_arg + work_3 * step);
+                        break;
+                    case 1:
+                        start += work * info.thread_id * capacity_arg * step + work_3 * step;
+                        end = std::min(end, start + work * step * capacity_arg + work_3 * step);
+                        //set_policy_frequency(4, 2419200);
+                        break;
+                    case 2:
+                        start += work * info.thread_id * capacity_arg * step + work_3 * info.thread_id * step;
+                        end = std::min(end, start + work * step);
+                        break;
+                    case 3:
+                        start += work * big_thread_num * capacity_arg * step + work * (little_thread_num - 1) * step + work_3 * big_thread_num * step;
+                        //end donesn't change
+                        break;
+                } 
+                /*
+                switch(info.thread_id){
+                    case 0:
+                    case 1:
+                        set_policy_frequency(4, 2419200);
+                        break;
+                    case 2:
+                    case 3:
+                        set_policy_frequency(0, 1785600);
+                        break;
+                } 
+                */
+
+                if (start < end)
+                {
+                    //std::cout << "array " << info.thread_id << " end - start" << (end - start) << std::endl;
+                    gemm_asm->pretranspose_B_array_part(dst->buffer(), src, src_ld, src_multi_stride, start, end);
+                }
+            };
+        } else {
+            workloads[t] = [=](const ThreadInfo &info)
+            {
+                const unsigned int start = (info.thread_id * wsize) / num_threads;
+                const unsigned int end   = ((info.thread_id + 1) * wsize) / num_threads;
+
+                /*
+                //DVFS
+                if(num_threads == 4) {  //wsize < 4
+                    switch(info.thread_id){
+                        case 0:
+                        case 1:
+                            set_policy_frequency(4, 940800);
+                            break;
+                        case 2:
+                        case 3:
+                            set_policy_frequency(0, 1785600);
+                            break;
+                    } 
+                }
+                */
+
+                if (start < end)
+                {
+                    gemm_asm->pretranspose_B_array_part(dst->buffer(), src, src_ld, src_multi_stride, start, end);
+                }
+            };
+        }
     }
     NEScheduler::get().run_tagged_workloads(workloads, "CpuGemmAssemblyDispatch/pretranspose_B_array");
 }
@@ -146,6 +238,7 @@ IScheduler::Hints scheduling_hint_heuristic(arm_gemm::GemmMethod method, DataTyp
     // Schedule assembly kernel
     const int         granule_threshold = 200;
     IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX);
+    //IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, 64);
     if (method == arm_gemm::GemmMethod::GEMM_INTERLEAVED && data_type == DataType::F32)
     {
         scheduling_hint = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, granule_threshold);
@@ -537,6 +630,7 @@ void Fallback<TypeInput, TypeOutput, OutputStage>::configure(const ITensorInfo *
 template <typename TypeInput, typename TypeOutput, class OutputStage>
 void Fallback<TypeInput, TypeOutput, OutputStage>::prepare(ITensorPack &tensors)
 {
+    //std::cout << "Fallback prepare" << std::endl;
     if (!_is_prepared)
     {
         auto b = tensors.get_const_tensor(TensorType::ACL_SRC_1);
@@ -561,6 +655,7 @@ void Fallback<TypeInput, TypeOutput, OutputStage>::prepare(ITensorPack &tensors)
         {
             ARM_COMPUTE_ERROR_ON(_pre_pretranspose_b == nullptr);
             ITensorPack pre_pretranspose_pack{{ACL_SRC, b_to_use}, {ACL_DST, pre_pretransposed_b.get()}};
+            //std::cout << "run pretranspose_b" << std::endl;
             _pre_pretranspose_b->run(pre_pretranspose_pack);
             b_to_use = pre_pretransposed_b.get();
         }
@@ -578,6 +673,7 @@ void Fallback<TypeInput, TypeOutput, OutputStage>::prepare(ITensorPack &tensors)
 
             CpuAuxTensorHandler pretranspose(offset_int_vec(Pretranspose), _pretranspose_info, tensors, false);
             ARM_COMPUTE_ERROR_ON(pretranspose.get()->buffer() == nullptr);
+            //std::cout << "start to run parallel pretranspose" << std::endl;
             run_parallel_pretranspose_B_array<TypeInput, TypeOutput>(_gemm_kernel_asm.get(), pretranspose.get(),
                                                                      in1_ptr, ldb, multi_stride_b,
                                                                      NEScheduler::get().num_threads());
@@ -610,6 +706,7 @@ experimental::MemoryRequirements Fallback<TypeInput, TypeOutput, OutputStage>::w
 template <typename TypeInput, typename TypeOutput, class OutputStage>
 void Fallback<TypeInput, TypeOutput, OutputStage>::run(ITensorPack &tensors)
 {
+    //std::cout << "Fallback run" << std::endl;
     auto a = tensors.get_const_tensor(TensorType::ACL_SRC_0);
     auto b = tensors.get_const_tensor(TensorType::ACL_SRC_1);
     auto c = tensors.get_const_tensor(TensorType::ACL_SRC_2);

@@ -35,6 +35,7 @@
 #include "src/core/NEON/INEKernel.h"
 
 #include <cstdint>
+#include <chrono>
 
 /** [NEReshapeLayerKernel Kernel] **/
 namespace arm_compute
@@ -162,6 +163,10 @@ void reshape_tensor_per_window(const Window &window, const ITensor *src, ITensor
     const size_t element_size         = dst->info()->element_size();
     const auto   window_size          = window.x().end() - window.x().start();
     const auto   window_size_in_bytes = window_size * element_size;
+
+    //std::cout << "reshape tensor per window" << std::endl;
+    //std::cout << "win_size " << window_size << std::endl;
+    //std::cout << "element_size " << element_size << std::endl;
 
     const auto input_ptr  = src_it.ptr();
     const auto output_ptr = dst_it.ptr();

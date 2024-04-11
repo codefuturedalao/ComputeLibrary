@@ -41,6 +41,7 @@
 #include <system_error>
 #include <thread>
 #include <vector>
+#include <chrono>
 
 namespace arm_compute
 {
@@ -85,10 +86,23 @@ private:
 void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeeder &feeder, const ThreadInfo &info)
 {
     unsigned int workload_index = info.thread_id;
+    unsigned int thread_id = info.thread_id;
+    if (thread_id >= IScheduler::workload_time.size()) {
+        IScheduler::workload_time.resize(thread_id + 1, 0);
+    }
     do
     {
         ARM_COMPUTE_ERROR_ON(workload_index >= workloads.size());
+        auto start = std::chrono::high_resolution_clock::now();
         workloads[workload_index](info);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        std::cout << " " << thread_id << " workload_" << workload_index <<  " " << duration_wl << " + " << IScheduler::workload_time[thread_id] << std::endl;
+        std::stringstream ss;
+        ss << "x, " << workload_index << ", " << duration_wl << ", " << duration_wl;
+        std::string wl_time = ss.str();
+        IScheduler::write_to_log_file(wl_time);
+        IScheduler::workload_time[thread_id] += duration_wl;
     } while (feeder.get_next(workload_index));
 }
 
@@ -335,8 +349,22 @@ struct CPPScheduler::Impl final
     }
     void set_num_threads(unsigned int num_threads, unsigned int thread_hint)
     {
-        _num_threads = num_threads == 0 ? thread_hint : num_threads;
-        _threads.resize(_num_threads - 1);
+        //std::cout << "Num_threads" << num_threads;
+        //std::cout << "threads_hint" << thread_hint;
+        if (num_threads == 4 && IScheduler::sw_flag) {
+            // Set affinity on worked threads
+            set_thread_affinity(4);
+            _threads.clear();
+            _threads.emplace_back(5);
+            _threads.emplace_back(3);       //small core
+            _threads.emplace_back(2);       //small core
+            _num_threads = num_threads;
+            workload_time.resize(_num_threads, 0);
+        } else {
+            _num_threads = num_threads == 0 ? thread_hint : num_threads;
+            _threads.resize(_num_threads - 1);
+            workload_time.resize(_num_threads, 0);
+        }
         auto_switch_mode(_num_threads);
     }
     void set_num_threads_with_affinity(unsigned int num_threads, unsigned int thread_hint, BindFunc func)
@@ -382,7 +410,7 @@ struct CPPScheduler::Impl final
     }
     void set_fanout_mode(unsigned int wake_fanout, unsigned int num_threads_to_use)
     {
-        ARM_COMPUTE_ERROR_ON(num_threads_to_use > _threads.size() + 1);
+        ARM_COMPUTE_ERROR_ON(num_threads_to_use > _threads.size() + 2);
         const auto actual_wake_fanout = std::max(2U, std::min(wake_fanout, num_threads_to_use - 1));
         auto       thread_it          = _threads.begin();
         for (auto i = 1U; i < num_threads_to_use; ++i, ++thread_it)
@@ -417,6 +445,7 @@ struct CPPScheduler::Impl final
 
     unsigned int       _num_threads;
     std::list<Thread>  _threads;
+    //int _threads_time[4];
     arm_compute::Mutex _run_workloads_mutex{};
     Mode               _mode{Mode::Linear};
     ModeToggle         _forced_mode{ModeToggle::None};
@@ -436,7 +465,8 @@ CPPScheduler::CPPScheduler() : _impl(std::make_unique<Impl>(num_threads_hint()))
 {
 }
 
-CPPScheduler::~CPPScheduler() = default;
+CPPScheduler::~CPPScheduler(){
+}
 
 void CPPScheduler::set_num_threads(unsigned int num_threads)
 {
@@ -465,6 +495,7 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     // This is not great because different threads workloads won't run in parallel but at least they
     // won't interfere each other and deadlock.
     arm_compute::lock_guard<std::mutex> lock(_impl->_run_workloads_mutex);
+    std::cout << "run workloads size " << workloads.size() << std::endl;
     const unsigned int num_threads_to_use = std::min(_impl->num_threads(), static_cast<unsigned int>(workloads.size()));
     if (num_threads_to_use < 1)
     {
@@ -496,7 +527,7 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     // Set num_threads_to_use - 1 workloads to the threads as the remaining 1 is left to the main thread
     for (; t < num_threads_to_use - 1; ++t, ++thread_it)
     {
-        info.thread_id = t;
+        info.thread_id = t + 1;
         thread_it->set_workload(&workloads, feeder, info);
     }
     thread_it = _impl->_threads.begin();
@@ -504,13 +535,15 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     {
         thread_it->start();
     }
-    info.thread_id                    = t; // Set main thread's thread_id
+    //info.thread_id                    = t; // Set main thread's thread_id
+    info.thread_id                    = 0; // make main thread running on the big
     std::exception_ptr last_exception = nullptr;
 #ifndef ARM_COMPUTE_EXCEPTIONS_DISABLED
     try
     {
 #endif                                              /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
         process_workloads(workloads, feeder, info); // Main thread processes workloads
+        //set_policy_frequency(4, 2419200);
 #ifndef ARM_COMPUTE_EXCEPTIONS_DISABLED
     }
     catch (...)
@@ -541,6 +574,8 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
         std::cerr << "Caught system_error with code " << e.code() << " meaning " << e.what() << '\n';
     }
 #endif /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
+    //set_policy_frequency(0, 1113600);
+    //set_gpu_clk(345);
 }
 #endif /* DOXYGEN_SKIP_THIS */
 
