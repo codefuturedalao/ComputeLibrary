@@ -45,12 +45,16 @@ const int IScheduler::capacity_arg_tagged = 7;
 const int IScheduler::num_it = capacity_arg * 2 + 2;
 std::vector<int> IScheduler::sched_latency;  //interval - max
 std::vector<int> IScheduler::wait_latency;   //max - min
+std::vector<int> IScheduler::thread_wait_latency;   //max - min
 std::vector<int> IScheduler::workload_time;
+                                           std::vector<std::chrono::high_resolution_clock::time_point> IScheduler::thread_end_time;
+//std::vector<int> IScheduler::thread_end_time;
+std::vector<int> IScheduler::kernel_duration;
 IScheduler::IScheduler()
 {
     // Work out the best possible number of execution threads
     _num_threads_hint = cpuinfo::num_threads_hint();
-    std::cout << "IScheduler::num_it " << IScheduler::num_it << " " << std::to_string(sw_flag) << std::endl;
+    std::cout << " split_window_uneven " << std::to_string(sw_flag) << std::endl;
 }
 
 IScheduler::~IScheduler()
@@ -61,7 +65,7 @@ IScheduler::~IScheduler()
 }
 
 void IScheduler::write_to_log_file(const std::string& message) {
-    //return ;
+    return ;
     std::lock_guard<std::mutex> lock(mtx);
     if(_outputFile.is_open()) {
         _outputFile << message << std::endl;
@@ -108,6 +112,7 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
     std::string kernel_name = ss.str();
     IScheduler::write_to_log_file(kernel_name);
     IScheduler::workload_time.clear();
+    IScheduler::thread_end_time.clear();
     auto start = std::chrono::high_resolution_clock::now();
     if (hints.split_dimension() == IScheduler::split_dimensions_all)
     {
@@ -154,7 +159,6 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
         //std::cout << "We got split-dimension" << hints.split_dimension() << std::endl;
         const unsigned int num_iterations = max_window.num_iterations(hints.split_dimension());
         unsigned int num_threads    = std::min(num_iterations, this->num_threads());
-        /*
         std::vector<std::string> non_interation_kernel = {"CpuDepthwiseConv2dAssemblyWrapperKernel", 
                                         "CpuWinogradConv2dTransformInputKernel",
                                         "CpuWinogradConv2dTransformOutputKernel",
@@ -167,6 +171,7 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
                 num_threads = 1;
                 break;
             }
+            /*
             if(std::strstr(kernel->name(), "CpuTransposeKernel") != nullptr) {
                 num_threads = 2;
                 break;
@@ -175,8 +180,8 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
                 num_threads = 2;
                 break;
             }
+            */
         }
-        */
         //std::cout << "num_interations" << num_iterations << std::endl;
         //std::cout << "num_threads" << num_threads << std::endl;
 
@@ -301,6 +306,23 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
                 std::cout << " --------( " << max_val << " --- " << min_val << " )--------"<< std::endl;
                 std::cout << " --------( " << max_val - min_val << " " << duration_sum_workload - max_val << " )--------"<< std::endl;
             }
+            if(!IScheduler::thread_end_time.empty()) {
+                auto min_val = *std::min_element(IScheduler::thread_end_time.begin(), IScheduler::thread_end_time.end());
+                auto max_val = *std::max_element(IScheduler::thread_end_time.begin(), IScheduler::thread_end_time.end());
+
+                auto thread_wait_time = std::chrono::duration_cast<std::chrono::microseconds>(max_val - min_val).count();
+                auto thread_sched_time = std::chrono::duration_cast<std::chrono::microseconds>(workload_end - max_val).count();
+                IScheduler::thread_wait_latency.push_back(thread_wait_time);
+                //std::cout << " thread--( " << ctime(&max_time_c) << " --- " << ctime(&min_time_c) << "---" << workload_end << " )--------"<< std::endl;
+                /*
+                auto max_system_time = std::chrono::system_clock::time_point(std::chrono::duration_cast<std::chrono::system_clock::duration>(max_val.time_since_epoch()));
+                auto max_time_c = std::chrono::system_clock::to_time_t(max_system_time);
+                auto min_system_time = std::chrono::system_clock::time_point(std::chrono::duration_cast<std::chrono::system_clock::duration>(min_val.time_since_epoch()));
+                auto min_time_c = std::chrono::system_clock::to_time_t(min_system_time);
+                std::cout << " thread--( " << ctime(&max_time_c) << " --- " << ctime(&min_time_c) << " )--------"<< std::endl;
+                */
+                std::cout << " thread--( " << thread_wait_time << " " << thread_sched_time << " )--------"<< std::endl;
+            }
         }
     }
 #else  /* !BARE_METAL */
@@ -308,6 +330,7 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
 #endif /* !BARE_METAL */
     auto end = std::chrono::high_resolution_clock::now();
     auto duration_kernel = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    IScheduler::kernel_duration.push_back(duration_kernel);
     //ARM_COMPUTE_UNUSED(duration);
     std::cout << " ********( " << duration_kernel << " )********"<< std::endl;
     ss.str("");
@@ -316,6 +339,11 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
         IScheduler::workload_time.clear();
     } else {
         ss << kernel->name() << ", x, 0, " << duration_kernel;
+    }
+
+    if(!IScheduler::thread_end_time.empty()) {
+        //ss << kernel->name() << ", " << IScheduler::wait_latency.back() << ", " << IScheduler::sched_latency.back() << ", " << duration_kernel;
+        IScheduler::thread_end_time.clear();
     }
     std::string duration_k= ss.str();
     IScheduler::write_to_log_file(duration_k);

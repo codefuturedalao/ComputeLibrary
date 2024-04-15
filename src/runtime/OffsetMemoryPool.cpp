@@ -30,6 +30,7 @@
 #include "arm_compute/runtime/Types.h"
 
 #include <algorithm>
+#include <iostream>
 
 namespace arm_compute
 {
@@ -50,20 +51,28 @@ void OffsetMemoryPool::acquire(MemoryMappings &handles)
     ARM_COMPUTE_ERROR_ON(_blob == nullptr);
 
     // Set memory to handlers
+    //std::cout << "Acuqire " << std::endl;
+    //int i = 0;
     for (auto &handle : handles)
     {
         ARM_COMPUTE_ERROR_ON(handle.first == nullptr);
+     //   i++;
         handle.first->set_owned_region(_blob->extract_subregion(handle.second, _blob_info.size - handle.second));
     }
+    //std::cout << i << " handles" << std::endl;
 }
 
 void OffsetMemoryPool::release(MemoryMappings &handles)
 {
+    //std::cout << "release" << std::endl;
+    //int i = 0;
     for (auto &handle : handles)
     {
+      //  i++;
         ARM_COMPUTE_ERROR_ON(handle.first == nullptr);
         handle.first->set_region(nullptr);
     }
+    //std::cout << i << " handles" << std::endl;
 }
 
 MappingType OffsetMemoryPool::mapping_type() const
