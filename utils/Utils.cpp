@@ -89,18 +89,30 @@ void discard_comments_and_spaces(std::ifstream &fs)
 int run_example(int argc, char **argv, std::unique_ptr<Example> example)
 {
     std::cout << "\n" << argv[0] << "\n\n";
+    auto start = std::chrono::high_resolution_clock::now();
 
     try
     {
+        auto setup_start = std::chrono::high_resolution_clock::now();
         bool status = example->do_setup(argc, argv);
+        auto setup_end = std::chrono::high_resolution_clock::now();
+        auto duration_setup = std::chrono::duration_cast<std::chrono::microseconds>(setup_end - setup_start).count();
+        std::cout << "graph.setup time " << duration_setup << std::endl;
         if (!status)
         {
             return 1;
         }
+        auto run_start = std::chrono::high_resolution_clock::now();
         example->do_run();
+        auto run_end = std::chrono::high_resolution_clock::now();
+        auto duration_run = std::chrono::duration_cast<std::chrono::microseconds>(run_end - run_start).count();
+        std::cout << "graph.run time " << duration_run << std::endl;
         example->do_teardown();
 
         std::cout << "\nTest passed\n";
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration_example = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        std::cout << "Graph Sum Time " << duration_example << std::endl;
         return 0;
     }
 #ifdef ARM_COMPUTE_CL

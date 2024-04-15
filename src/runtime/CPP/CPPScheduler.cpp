@@ -97,19 +97,66 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
         workloads[workload_index](info);
         auto end = std::chrono::high_resolution_clock::now();
         auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        std::cout << " " << thread_id << " workload_" << workload_index <<  " " << duration_wl << " + " << IScheduler::workload_time[thread_id] << std::endl;
+        //std::cout << " " << thread_id << " workload_" << workload_index <<  " " << duration_wl << " + " << IScheduler::workload_time[thread_id] << std::endl;
+        /*
         std::stringstream ss;
-        ss << "x, " << workload_index << ", " << duration_wl << ", " << duration_wl;
+        ss << thread_id << ", " << workload_index << ", " << duration_wl << ", " << IScheduler::workload_time[thread_id];
         std::string wl_time = ss.str();
         IScheduler::write_to_log_file(wl_time);
+        */
         IScheduler::workload_time[thread_id] += duration_wl;
     } while (feeder.get_next(workload_index));
+    auto end_time = std::chrono::high_resolution_clock::now();
+    if (thread_id >= IScheduler::thread_end_time.size()) {
+        //IScheduler::thread_end_time.resize(thread_id + 1, 0);
+        IScheduler::thread_end_time.resize(thread_id + 1, end_time);
+    }
+    IScheduler::thread_end_time[thread_id] = end_time;
+
+    /*
+    std::cout << "Thread " << thread_id << ": " << IScheduler::workload_time[thread_id] << std::endl;
+    std::stringstream ss;
+    ss << "x, x, x, " <<  IScheduler::workload_time[thread_id];
+    std::string wl_time = ss.str();
+    IScheduler::write_to_log_file(wl_time);
+    */
 }
 
 /** Set thread affinity. Pin current thread to a particular core
  *
  * @param[in] core_id ID of the core to which the current thread is pinned
  */
+void set_thread_affinity(std::string hex_mask)
+{
+    if (hex_mask.empty())
+    {
+        return;
+    }
+
+#if !defined(_WIN64) && !defined(__APPLE__) && !defined(__OpenBSD__)
+    cpu_set_t set;
+    char *end;
+    errno = 0;
+    long int mask = strtol(hex_mask.c_str(), &end, 16);
+    if(*end != '\0' || errno != 0) {
+        std::cerr << "Error: Invalid hexadecimal input." << std::endl;
+        return;
+    }
+    CPU_ZERO(&set);
+    for(int i = 0; i < 8; i++) {
+        if(mask & (1L << i)) {
+            CPU_SET(i, &set);
+        }
+    }
+    ARM_COMPUTE_EXIT_ON_MSG(sched_setaffinity(0, sizeof(set), &set), "Error setting thread affinity");
+#endif /* !defined(__APPLE__) && !defined(__OpenBSD__) */
+}
+
+/** Set thread affinity. Pin current thread to a particular core
+ *
+ * @param[in] core_id ID of the core to which the current thread is pinned
+ */
+/*
 void set_thread_affinity(int core_id)
 {
     if (core_id < 0)
@@ -122,8 +169,10 @@ void set_thread_affinity(int core_id)
     CPU_ZERO(&set);
     CPU_SET(core_id, &set);
     ARM_COMPUTE_EXIT_ON_MSG(sched_setaffinity(0, sizeof(set), &set), "Error setting thread affinity");
-#endif /* !defined(__APPLE__) && !defined(__OpenBSD__) */
-}
+#endif 
+*/
+/* !defined(__APPLE__) && !defined(__OpenBSD__) */
+//}
 
 /** There are currently 2 scheduling modes supported by CPPScheduler
  *
@@ -161,7 +210,7 @@ public:
      *
      * @param[in] core_pin Core id to pin the thread on. If negative no thread pinning will take place
      */
-    explicit Thread(int core_pin = -1);
+    explicit Thread(std::string core_pin = std::string());
 
     Thread(const Thread &)            = delete;
     Thread &operator=(const Thread &) = delete;
@@ -216,13 +265,13 @@ private:
     bool                               _wait_for_work{false};
     bool                               _job_complete{true};
     std::exception_ptr                 _current_exception{nullptr};
-    int                                _core_pin{-1};
+    std::string _core_pin{};
     std::list<Thread>                 *_thread_pool{nullptr};
     unsigned int                       _wake_beg{0};
     unsigned int                       _wake_end{0};
 };
 
-Thread::Thread(int core_pin) : _core_pin(core_pin)
+Thread::Thread(std::string core_pin) : _core_pin(core_pin)
 {
     _thread = std::thread(&Thread::worker_thread, this);
 }
@@ -353,11 +402,11 @@ struct CPPScheduler::Impl final
         //std::cout << "threads_hint" << thread_hint;
         if (num_threads == 4 && IScheduler::sw_flag) {
             // Set affinity on worked threads
-            set_thread_affinity(4);
+            set_thread_affinity("10");
             _threads.clear();
-            _threads.emplace_back(5);
-            _threads.emplace_back(3);       //small core
-            _threads.emplace_back(2);       //small core
+            _threads.emplace_back("20");
+            _threads.emplace_back("08");       //small core
+            _threads.emplace_back("04");       //small core
             _num_threads = num_threads;
             workload_time.resize(_num_threads, 0);
         } else {
@@ -372,13 +421,13 @@ struct CPPScheduler::Impl final
         _num_threads = num_threads == 0 ? thread_hint : num_threads;
 
         // Set affinity on main thread
-        set_thread_affinity(func(0, thread_hint));
+        set_thread_affinity(func(0, _num_threads));
 
         // Set affinity on worked threads
         _threads.clear();
         for (auto i = 1U; i < _num_threads; ++i)
         {
-            _threads.emplace_back(func(i, thread_hint));
+            _threads.emplace_back(func(i, _num_threads));
         }
         auto_switch_mode(_num_threads);
     }
@@ -495,7 +544,7 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     // This is not great because different threads workloads won't run in parallel but at least they
     // won't interfere each other and deadlock.
     arm_compute::lock_guard<std::mutex> lock(_impl->_run_workloads_mutex);
-    std::cout << "run workloads size " << workloads.size() << std::endl;
+    std::cout << workloads.size() << " workloads" << std::endl;
     const unsigned int num_threads_to_use = std::min(_impl->num_threads(), static_cast<unsigned int>(workloads.size()));
     if (num_threads_to_use < 1)
     {

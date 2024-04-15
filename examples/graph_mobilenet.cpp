@@ -27,6 +27,7 @@
 #include "utils/CommonGraphOptions.h"
 #include "utils/GraphUtils.h"
 #include "utils/Utils.h"
+#include <time.h>
 
 using namespace arm_compute;
 using namespace arm_compute::utils;
@@ -98,6 +99,7 @@ public:
         // Finalize graph
         GraphConfig config;
         config.num_threads = common_params.threads;
+        config.threads_affinity = common_params.threads_affinity;
         config.use_tuner   = common_params.enable_tuner;
         config.tuner_mode  = common_params.tuner_mode;
         config.tuner_file  = common_params.tuner_file;
@@ -391,5 +393,10 @@ private:
  */
 int main(int argc, char **argv)
 {
-    return arm_compute::utils::run_example<GraphMobilenetExample>(argc, argv);
+    //auto start = std::chrono::high_resolution_clock::now();
+    int result = arm_compute::utils::run_example<GraphMobilenetExample>(argc, argv);
+    //auto end = std::chrono::high_resolution_clock::now();
+    //auto duration_graph = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    //std::cout << "graph.run_example time " << duration_graph << std::endl;
+    return result;
 }

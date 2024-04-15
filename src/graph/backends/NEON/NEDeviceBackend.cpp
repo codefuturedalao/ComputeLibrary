@@ -72,7 +72,30 @@ void NEDeviceBackend::setup_backend_context(GraphContext &ctx)
     // Set number of threads
     if (ctx.config().num_threads >= 0)
     {
-        Scheduler::get().set_num_threads(ctx.config().num_threads);
+        if (!ctx.config().threads_affinity.empty()) {
+            std::string affinity = ctx.config().threads_affinity;
+            auto func = [&affinity](int idx, int thread_num) -> std::string {
+                std::vector<std::string> tokens;
+                std::stringstream ss(affinity);
+                std::string item;
+                while(std::getline(ss, item, ',')) {
+                    tokens.push_back(item);
+                }
+                if((int)tokens.size() > thread_num) {
+                    std::cout << affinity << std::endl;
+                    std::cout << "too much affinity " << tokens.size()  << std::endl;
+                    return "";
+                } else {
+                    //return std::stoi(tokens[idx]);
+                    return tokens[idx];
+                }
+
+            };
+            Scheduler::get().set_num_threads_with_affinity(ctx.config().num_threads, func);
+        } else  {
+            Scheduler::get().set_num_threads(ctx.config().num_threads);
+
+        }
     }
 
     // Create function level memory manager

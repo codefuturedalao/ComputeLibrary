@@ -39,9 +39,12 @@ Stream::Stream(size_t id, std::string name) : _ctx(), _manager(), _g(id, std::mo
 
 Stream::~Stream()
 {
-    std::cout << "size " << IScheduler::sched_latency.size() << std::endl;
+    std::cout << "kernels_num: " << IScheduler::kernel_duration.size() << std::endl;
+    std::cout << "paral_kernels_num: " << IScheduler::sched_latency.size() << std::endl;
+    std::cout << "kernel_duration: " << std::accumulate(IScheduler::kernel_duration.begin(), IScheduler::kernel_duration.end(), 0) << std::endl;
     std::cout << "sched_latency: " << std::accumulate(IScheduler::sched_latency.begin(), IScheduler::sched_latency.end(), 0) << std::endl;
     std::cout << "wait_latency: " << std::accumulate(IScheduler::wait_latency.begin(), IScheduler::wait_latency.end(), 0) << std::endl;
+    std::cout << "thread_wait_latency: " << std::accumulate(IScheduler::thread_wait_latency.begin(), IScheduler::thread_wait_latency.end(), 0) << std::endl;
 }
 
 void Stream::finalize(Target target, const GraphConfig &config)

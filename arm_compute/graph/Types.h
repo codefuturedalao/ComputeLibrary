@@ -95,6 +95,7 @@ struct GraphConfig
     CLTunerMode tuner_mode{CLTunerMode::EXHAUSTIVE}; /**< Tuner mode to be used by the CL tuner */
     int         num_threads{
         -1}; /**< Number of threads to use (thread capable backends), if 0 the backend will auto-initialize, if -1 the backend will stay as it is. */
+    std::string threads_affinity{};
     std::string   tuner_file{"acl_tuner.csv"};         /**< File to load/store tuning values from */
     std::string   mlgo_file{"heuristics.mlgo"};        /**< Filename to load MLGO heuristics from */
     CLBackendType backend_type{CLBackendType::Native}; /**< CL backend type to use */

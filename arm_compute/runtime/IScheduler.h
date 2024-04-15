@@ -54,7 +54,7 @@ public:
      * Mapping function expects the thread index and total number of cores as input,
      * and returns the logical core index to bind against
      */
-    using BindFunc = std::function<int(int, int)>;
+    using BindFunc = std::function<std::string(int, int)>;
 
     /** When arm_compute::ISchedular::Hints::_split_dimension is initialized with this value
      * then the schedular is free to break down the problem space over as many dimensions
@@ -142,7 +142,10 @@ public:
     static const int num_it;
     static std::vector<int> sched_latency;  //interval - max
     static std::vector<int> wait_latency;   //max - min
+    static std::vector<int> thread_wait_latency;   //max - min
                                                static std::vector<int> workload_time;
+                                               static std::vector<std::chrono::high_resolution_clock::time_point> thread_end_time;
+    static std::vector<int> kernel_duration;
     static void write_to_log_file(const std::string& message);
     /** Default constructor. */
     IScheduler();

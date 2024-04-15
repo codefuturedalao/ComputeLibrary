@@ -94,6 +94,7 @@ struct CommonGraphParams
 {
     bool                             help{false};
     int                              threads{0};
+    std::string                      threads_affinity{};
     int                              batches{1};
     arm_compute::graph::Target       target{arm_compute::graph::Target::NEON};
     arm_compute::DataType            data_type{DataType::F32};
@@ -152,6 +153,7 @@ public:
 
     ToggleOption                           *help;             /**< Show help option */
     SimpleOption<int>                      *threads;          /**< Number of threads option */
+    SimpleOption<std::string>                      *threads_affinity;
     SimpleOption<int>                      *batches;          /**< Number of batches */
     EnumOption<arm_compute::graph::Target> *target;           /**< Graph execution target */
     EnumOption<arm_compute::DataType>      *data_type;        /**< Graph data type */
