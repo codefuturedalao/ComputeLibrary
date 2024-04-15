@@ -237,8 +237,8 @@ IScheduler::Hints scheduling_hint_heuristic(arm_gemm::GemmMethod method, DataTyp
 {
     // Schedule assembly kernel
     const int         granule_threshold = 200;
-    IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX);
-    //IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, 64);
+    //IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX);
+    IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, 256);
     if (method == arm_gemm::GemmMethod::GEMM_INTERLEAVED && data_type == DataType::F32)
     {
         scheduling_hint = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, granule_threshold);

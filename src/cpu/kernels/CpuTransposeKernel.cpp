@@ -410,6 +410,7 @@ bool set_policy_frequency(int policy_idx, int freq) {
 }
 */
 
+/*
 int get_thread_affinity() {
     cpu_set_t set;
     pid_t tid = gettid();
@@ -423,7 +424,9 @@ int get_thread_affinity() {
     }
     return 1024;    //make sure > 4
 }
+*/
 
+/*
 void set_thread_affinity(int core_id)
 {
     if (core_id < 0)
@@ -436,8 +439,10 @@ void set_thread_affinity(int core_id)
     CPU_ZERO(&set);
     CPU_SET(core_id, &set);
     ARM_COMPUTE_EXIT_ON_MSG(sched_setaffinity(0, sizeof(set), &set), "Error setting thread affinity");
-#endif /* !defined(__APPLE__) && !defined(__OpenBSD__) */
-}
+#endif 
+*/
+/* !defined(__APPLE__) && !defined(__OpenBSD__) */
+//}
 
 void transpose_32bit_elements(const ITensor *in, ITensor *out, const Window &window)
 {
@@ -637,6 +642,7 @@ void transpose_32bit_elements(const ITensor *in, ITensor *out, const Window &win
 
     if (left_over_loop_y)
     {
+        /*
         int core_id = get_thread_affinity();
         pid_t tid = gettid();
         std::cout << "tid " << tid << " core_id " << core_id << std::endl;
@@ -644,6 +650,7 @@ void transpose_32bit_elements(const ITensor *in, ITensor *out, const Window &win
             std::cout << "Move to big" << std::endl;
             set_thread_affinity(6);
         }
+        */
         window_in.set(Window::DimX, Window::Dimension(window.x().start(), window.x().end(), 1));
         window_in.set(Window::DimY, Window::Dimension(window_end_y_multiple_of, window_end_y, 1));
 
@@ -664,10 +671,12 @@ void transpose_32bit_elements(const ITensor *in, ITensor *out, const Window &win
             },
             input, output);
             //set_policy_frequency(0, 1785600);
+            /*
             if(core_id < 4) {
                 std::cout << "Move to little" << std::endl;
                 set_thread_affinity(2);
             }
+            */
     }
 }
 #else  // __aarch64__

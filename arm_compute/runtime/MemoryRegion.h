@@ -28,6 +28,7 @@
 #include "arm_compute/runtime/IMemoryRegion.h"
 
 #include <cstddef>
+#include <iostream>
 
 namespace arm_compute
 {
@@ -46,6 +47,7 @@ public:
         {
             // Allocate backing memory
             size_t space = size + alignment;
+            //std::cout << "allocate " << space << " bytes" << std::endl;
             _mem         = std::shared_ptr<uint8_t>(new uint8_t[space](), [](uint8_t *ptr) { delete[] ptr; });
             _ptr         = _mem.get();
 
