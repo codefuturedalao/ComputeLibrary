@@ -51,7 +51,7 @@
         if (arm_compute::logging::LoggerRegistry::get().logger("ComputeLibrary") == nullptr)                 \
         {                                                                                                    \
             arm_compute::logging::LoggerRegistry::get().create_logger("ComputeLibrary",                      \
-                                                                      arm_compute::logging::LogLevel::INFO); \
+                                                                      arm_compute::logging::LogLevel::ERROR); \
         }                                                                                                    \
     } while (false)
 
