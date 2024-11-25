@@ -56,7 +56,7 @@ public:
      * @param[in] printers  Printers to attach to the system loggers. Defaults with a @ref StdPrinter.
      */
     void create_logger(const std::string                           &name,
-                       LogLevel                                     log_level = LogLevel::INFO,
+                       LogLevel                                     log_level = LogLevel::ERROR,
                        const std::vector<std::shared_ptr<Printer>> &printers  = {std::make_shared<StdPrinter>()});
     /** Remove a logger
      *
@@ -75,7 +75,7 @@ public:
      * @param[in] log_level (Optional) Logger's log level. Defaults to INFO
      * @param[in] printers  (Optional) Printers to attach to the system loggers. Defaults with a @ref StdPrinter.
      */
-    void create_reserved_loggers(LogLevel                                     log_level = LogLevel::INFO,
+    void create_reserved_loggers(LogLevel                                     log_level = LogLevel::ERROR,
                                  const std::vector<std::shared_ptr<Printer>> &printers  = {
                                       std::make_shared<StdPrinter>()});
 
