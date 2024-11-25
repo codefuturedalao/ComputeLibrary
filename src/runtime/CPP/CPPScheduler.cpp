@@ -86,17 +86,18 @@ private:
 void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeeder &feeder, const ThreadInfo &info)
 {
     unsigned int workload_index = info.thread_id;
-    unsigned int thread_id = info.thread_id;
+    /*
     if (thread_id >= IScheduler::workload_time.size()) {
         IScheduler::workload_time.resize(thread_id + 1, 0);
     }
+    */
     do
     {
         ARM_COMPUTE_ERROR_ON(workload_index >= workloads.size());
-        auto start = std::chrono::high_resolution_clock::now();
+     //   auto start = std::chrono::high_resolution_clock::now();
         workloads[workload_index](info);
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+      //  auto end = std::chrono::high_resolution_clock::now();
+       // auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         //std::cout << " " << thread_id << " workload_" << workload_index <<  " " << duration_wl << " + " << IScheduler::workload_time[thread_id] << std::endl;
         /*
         std::stringstream ss;
@@ -104,14 +105,20 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
         std::string wl_time = ss.str();
         IScheduler::write_to_log_file(wl_time);
         */
-        IScheduler::workload_time[thread_id] += duration_wl;
+        //IScheduler::workload_time[thread_id] += duration_wl;
     } while (feeder.get_next(workload_index));
+    //std::cout << " job_complete" << info.thread_id << std::endl;
+    //std::cout << " Workload_index  " << workload_index << " end " << workloads.size() << std::endl;
+    /*
+    unsigned int thread_id = info.thread_id;
     auto end_time = std::chrono::high_resolution_clock::now();
     if (thread_id >= IScheduler::thread_end_time.size()) {
+        std::cout << " Resize " << info.thread_id << std::endl;
         //IScheduler::thread_end_time.resize(thread_id + 1, 0);
         IScheduler::thread_end_time.resize(thread_id + 1, end_time);
     }
     IScheduler::thread_end_time[thread_id] = end_time;
+    */
 
     /*
     std::cout << "Thread " << thread_id << ": " << IScheduler::workload_time[thread_id] << std::endl;
@@ -358,7 +365,7 @@ void Thread::worker_thread()
         }
 #endif /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
         _workloads    = nullptr;
-        _job_complete = true;
+        _job_complete = true;  
         lock.unlock();
         _cv.notify_one();
     }
@@ -544,8 +551,9 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     // This is not great because different threads workloads won't run in parallel but at least they
     // won't interfere each other and deadlock.
     arm_compute::lock_guard<std::mutex> lock(_impl->_run_workloads_mutex);
-    std::cout << workloads.size() << " workloads" << std::endl;
     const unsigned int num_threads_to_use = std::min(_impl->num_threads(), static_cast<unsigned int>(workloads.size()));
+    std::cout << "[CPPScheduler::run_workloads]---> " << workloads.size() << " workloads" << std::endl;
+    std::cout << "[CPPScheduler::run_workloads]---> " << num_threads_to_use << " num_threads" << std::endl;
     if (num_threads_to_use < 1)
     {
         return;
@@ -599,7 +607,6 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     {
         last_exception = std::current_exception();
     }
-
     try
     {
 #endif /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
@@ -609,11 +616,14 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
             std::exception_ptr current_exception = thread_it->wait();
             if (current_exception)
             {
+                //std::cout << "[CPPScheduler::run_workloads]---> has current_exception" << std::endl;
                 last_exception = current_exception;
             }
+            //std::cout << "[CPPScheduler::run_workloads]---> thread_id = " << i << std::endl;
         }
         if (last_exception)
         {
+            //std::cout << "[CPPScheduler::run_workloads]---> rethrow_exception" << std::endl;
             std::rethrow_exception(last_exception);
         }
 #ifndef ARM_COMPUTE_EXCEPTIONS_DISABLED
