@@ -110,7 +110,8 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
     //std::cout << " job_complete" << info.thread_id << std::endl;
     //std::cout << " Workload_index  " << workload_index << " end " << workloads.size() << std::endl;
 
-    std::cout << "Thread " << thread_id << ": " << IScheduler::workload_time[thread_id] << std::endl;
+    std::printf("Thread %d: %d\n", thread_id, IScheduler::workload_time[thread_id]);
+    // std::cout << "Thread " << thread_id << ": " << IScheduler::workload_time[thread_id] << std::endl;
     /*
     std::stringstream ss;
     ss << "x, x, x, " <<  IScheduler::workload_time[thread_id];
