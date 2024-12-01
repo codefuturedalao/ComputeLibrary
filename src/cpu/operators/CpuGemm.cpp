@@ -68,6 +68,7 @@ void CpuGemm::configure(const ITensorInfo *a,
                         float              beta,
                         const GEMMInfo    &gemm_info)
 {
+    //std::cout << "Best : configure" << std::endl;
     ARM_COMPUTE_ERROR_ON_NULLPTR(a, b, d);
     ARM_COMPUTE_ERROR_THROW_ON(CpuGemm::validate(a, b, c, d, alpha, beta, gemm_info));
     ARM_COMPUTE_LOG_PARAMS(a, b, c, d, alpha, beta, gemm_info);
@@ -317,6 +318,7 @@ Status CpuGemm::validate(const ITensorInfo *a,
 
     // Note we use b instead of b_to_use here because asm_info also captures the pretranspose_b() flag
     // so we pass the original b to CpuGemmAssemblyDispatch
+    //std::cout << "Best : CpuGemm Validate " << std::endl;
     const bool run_optimised =
         bool(cpu::CpuGemmAssemblyDispatch::validate(a, b, is_c_bias ? c : nullptr, d, asm_info)) &&
         (c == nullptr || beta == 0.f || beta == 1.f) && // Optimized GeMM doesn't support beta coefficient.

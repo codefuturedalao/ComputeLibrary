@@ -42,6 +42,7 @@
 #include "arm_compute/runtime/OffsetLifetimeManager.h"
 #include "arm_compute/runtime/PoolManager.h"
 #include "arm_compute/runtime/Scheduler.h"
+#include "arm_compute/runtime/CPP/SmartScheduler.h"
 
 namespace arm_compute
 {
@@ -69,6 +70,9 @@ void NEDeviceBackend::release_backend_context(GraphContext &ctx)
 
 void NEDeviceBackend::setup_backend_context(GraphContext &ctx)
 {
+    /**  Set scheduler */
+    //Scheduler::set(std::make_shared<SmartScheduler>());
+    Scheduler::set(ctx.config().scheduler);
     // Set number of threads
     if (ctx.config().num_threads >= 0)
     {

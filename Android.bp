@@ -909,6 +909,7 @@ cc_library_static {
         "src/runtime/CL/mlgo/Utils.cpp",
         "src/runtime/CL/tuners/CLTuningParametersList.cpp",
         "src/runtime/CPP/CPPScheduler.cpp",
+        "src/runtime/CPP/SmartScheduler.cpp",
         "src/runtime/CPP/ICPPSimpleFunction.cpp",
         "src/runtime/CPP/SingleThreadScheduler.cpp",
         "src/runtime/CPP/functions/CPPBoxWithNonMaximaSuppressionLimit.cpp",

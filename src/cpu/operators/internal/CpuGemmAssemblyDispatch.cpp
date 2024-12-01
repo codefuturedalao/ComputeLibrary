@@ -237,8 +237,8 @@ IScheduler::Hints scheduling_hint_heuristic(arm_gemm::GemmMethod method, DataTyp
 {
     // Schedule assembly kernel
     const int         granule_threshold = 200;
-    //IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX);
-    IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, 256);
+    IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX);
+    //IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, 256);
     if (method == arm_gemm::GemmMethod::GEMM_INTERLEAVED && data_type == DataType::F32)
     {
         scheduling_hint = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, granule_threshold);
@@ -655,7 +655,6 @@ void Fallback<TypeInput, TypeOutput, OutputStage>::prepare(ITensorPack &tensors)
         {
             ARM_COMPUTE_ERROR_ON(_pre_pretranspose_b == nullptr);
             ITensorPack pre_pretranspose_pack{{ACL_SRC, b_to_use}, {ACL_DST, pre_pretransposed_b.get()}};
-            //std::cout << "run pretranspose_b" << std::endl;
             _pre_pretranspose_b->run(pre_pretranspose_pack);
             b_to_use = pre_pretransposed_b.get();
         }
@@ -673,7 +672,7 @@ void Fallback<TypeInput, TypeOutput, OutputStage>::prepare(ITensorPack &tensors)
 
             CpuAuxTensorHandler pretranspose(offset_int_vec(Pretranspose), _pretranspose_info, tensors, false);
             ARM_COMPUTE_ERROR_ON(pretranspose.get()->buffer() == nullptr);
-            //std::cout << "start to run parallel pretranspose" << std::endl;
+            std::cout << "start to run parallel pretranspose" << std::endl;
             run_parallel_pretranspose_B_array<TypeInput, TypeOutput>(_gemm_kernel_asm.get(), pretranspose.get(),
                                                                      in1_ptr, ldb, multi_stride_b,
                                                                      NEScheduler::get().num_threads());
@@ -744,6 +743,7 @@ void Fallback<TypeInput, TypeOutput, OutputStage>::run(ITensorPack &tensors)
     {
         ARM_COMPUTE_ERROR_ON(_pre_pretranspose_b == nullptr);
         ITensorPack pre_pretranspose_pack{{ACL_SRC, b_to_use}, {ACL_DST, pre_pretransposed_b.get()}};
+        std::cout << "_pre_pretranspose_b run" << std::endl;
         _pre_pretranspose_b->run(pre_pretranspose_pack);
         b_to_use = pre_pretransposed_b.get();
     }
@@ -786,6 +786,7 @@ void Fallback<TypeInput, TypeOutput, OutputStage>::run(ITensorPack &tensors)
             }
             else
             {
+                std::cout << "run_parallel_pretranspose_B_array" << std::endl;
                 run_parallel_pretranspose_B_array<TypeInput, TypeOutput>(_gemm_kernel_asm.get(), pretranspose.get(),
                                                                          b_ptr, ldb, multi_stride_b,
                                                                          NEScheduler::get().num_threads());
@@ -938,6 +939,7 @@ Status CpuGemmAssemblyDispatch::has_opt_impl(arm_compute::WeightFormat &expected
     arm_gemm::WeightFormat arm_gemm_expected_wf = assembly_utils::map_to_arm_gemm_weight_format(expected_weight_format);
     arm_gemm::GemmArgs     args(&ci, p.M, p.N, p.K, p.sections, p.batches, p.multis, p.indirect, act, num_threads,
                                 info.fixed_format, info.fast_mode, &cfg);
+    //std::cout << "Best : has_opt_impl " << std::endl;
     // TODO: Incorporate info.transpose_b COMPMID-6595
     switch (a->data_type())
     {
@@ -1049,6 +1051,7 @@ Status CpuGemmAssemblyDispatch::validate(
                                         (d->data_type() != DataType::QASYMM8 && d->data_type() != DataType::S32),
                                     "Only QASYMM8/S32 output supported for QASYMM8 input");
     arm_compute::WeightFormat expected_weight_format = arm_compute::WeightFormat::UNSPECIFIED;
+    //std::cout << "Best : Validate" << std::endl;
     const Status              ret = CpuGemmAssemblyDispatch::has_opt_impl(expected_weight_format, a, b, c, d, info);
     if ((bool)ret && expected_weight_format != arm_compute::WeightFormat::ANY)
     {

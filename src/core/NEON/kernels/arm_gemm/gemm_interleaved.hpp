@@ -23,6 +23,7 @@
  */
 #pragma once
 
+#include <iostream>
 #include <algorithm>
 #include <cassert>
 
@@ -1207,6 +1208,7 @@ public:
         // choice in many threaded cases.  Penalize that here.
         float parallelism_available = static_cast<float>(iceildiv(args._Msize, strategy::out_height()) * args._nbatches) * 0.9f;
 
+        //std::cout << "Best: " << parallelism_available << " , " << args._maxthreads << std::endl;
         if (parallelism_available < args._maxthreads) {
             total_cycles *= (static_cast<float>(args._maxthreads) / parallelism_available);
         }

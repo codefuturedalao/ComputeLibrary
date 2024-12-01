@@ -81,6 +81,7 @@ namespace utils
 
     os << "Threads : " << common_params.threads << std::endl;
     os << "Threads Affinity: " << common_params.threads_affinity << std::endl;
+    os << "Threads Scheduler: " << common_params.scheduler << std::endl;
     os << "Target : " << common_params.target << std::endl;
     os << "Data type : " << common_params.data_type << std::endl;
     os << "Data layout : " << common_params.data_layout << std::endl;
@@ -121,6 +122,8 @@ CommonGraphOptions::CommonGraphOptions(CommandLineParser &parser)
     : help(parser.add_option<ToggleOption>("help")),
       threads(parser.add_option<SimpleOption<int>>("threads", 1)),
       threads_affinity(parser.add_option<SimpleOption<std::string>>("threads-affinity")),
+      //scheduler(parser.add_option<SimpleOption<std::string>>("scheduler")),
+      scheduler(),
       batches(parser.add_option<SimpleOption<int>>("batches", 1)),
       target(),
       data_type(),
@@ -156,16 +159,25 @@ CommonGraphOptions::CommonGraphOptions(CommandLineParser &parser)
         DataLayout::NCHW,
     };
 
+    std::set<arm_compute::graph::CPUScheduler> supported_schedulers{
+        CPUScheduler::ST,
+        CPUScheduler::CPP,
+        CPUScheduler::OMP,
+        CPUScheduler::CUSTOM,
+    };
+
     const std::set<CLTunerMode> supported_tuner_modes{CLTunerMode::EXHAUSTIVE, CLTunerMode::NORMAL, CLTunerMode::RAPID};
 
     target      = parser.add_option<EnumOption<Target>>("target", supported_targets, Target::NEON);
     data_type   = parser.add_option<EnumOption<DataType>>("type", supported_data_types, DataType::F32);
     data_layout = parser.add_option<EnumOption<DataLayout>>("layout", supported_data_layouts);
     tuner_mode  = parser.add_option<EnumOption<CLTunerMode>>("tuner-mode", supported_tuner_modes, CLTunerMode::NORMAL);
+    scheduler = parser.add_option<EnumOption<CPUScheduler>>("cpuscheduler", supported_schedulers, CPUScheduler::CPP);
 
     help->set_help("Show this help message");
     threads->set_help("Number of threads to use");
     threads_affinity->set_help("Affinity of threads to use");
+    scheduler->set_help("Scheduler to use");
     batches->set_help("Number of batches to use for the inputs");
     target->set_help("Target to execute on");
     data_type->set_help("Data type to use");
@@ -197,6 +209,7 @@ CommonGraphParams consume_common_graph_parameters(CommonGraphOptions &options)
     common_params.help      = options.help->is_set() ? options.help->value() : false;
     common_params.threads   = options.threads->value();
     common_params.threads_affinity   = options.threads_affinity->value();
+    common_params.scheduler = options.scheduler->value();
     common_params.batches   = options.batches->value();
     common_params.target    = options.target->value();
     common_params.data_type = options.data_type->value();

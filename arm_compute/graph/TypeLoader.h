@@ -78,6 +78,29 @@ inline ::std::istream &operator>>(::std::istream &stream, Target &target)
     return stream;
 }
 
+/** Converts a string to a strong types enumeration @ref CPUScheduler
+ *
+ * @param[in] name String to convert
+ *
+ * @return Converted Target enumeration
+ */
+CPUScheduler scheduler_from_name(const std::string &name);
+
+/** Input Stream operator for @ref Scheduler
+ *
+ * @param[in]  stream Stream to parse
+ * @param[out] target Output target
+ *
+ * @return Updated stream
+ */
+inline ::std::istream &operator>>(::std::istream &stream, CPUScheduler &scheduler)
+{
+    std::string value;
+    stream >> value;
+    scheduler = scheduler_from_name(value);
+    return stream;
+}
+
 /** Converts a string to a strong types enumeration @ref ConvolutionMethod
  *
  * @param[in] name String to convert

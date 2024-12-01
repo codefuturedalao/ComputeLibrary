@@ -58,6 +58,28 @@ inline ::std::ostream &operator<<(::std::ostream &os, const Target &target)
     return os;
 }
 
+inline ::std::ostream &operator<<(::std::ostream &os, const CPUScheduler &scheduler)
+{
+    switch (scheduler)
+    {
+        case CPUScheduler::ST:
+            os << "Single Thread";
+            break;
+        case CPUScheduler::CPP:
+            os << "CPP";
+            break;
+        case CPUScheduler::OMP:
+            os << "OMP";
+            break;
+        case CPUScheduler::CUSTOM:
+            os << "CUSTOM(Smart)";
+            break;
+        default:
+            ARM_COMPUTE_ERROR("NOT_SUPPORTED!");
+    }
+
+    return os;
+}
 inline ::std::ostream &operator<<(::std::ostream &os, const NodeType &node_type)
 {
     switch (node_type)

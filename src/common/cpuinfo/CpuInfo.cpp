@@ -386,7 +386,8 @@ CpuModel CpuInfo::cpu_model() const
     (!defined(__arm__) && !defined(__aarch64__))
     return cpu_model(0);
 #else /* defined(BARE_METAL) || defined(__APPLE__) || defined(__OpenBSD__) || (!defined(__arm__) && !defined(__aarch64__)) */
-    return cpu_model(sched_getcpu());
+    //return cpu_model(sched_getcpu());
+    return cpu_model(0);
 #endif /* defined(BARE_METAL) || defined(__APPLE__) || defined(__OpenBSD__) || (!defined(__arm__) && !defined(__aarch64__)) */
 }
 
@@ -446,7 +447,7 @@ uint32_t num_threads_hint()
 
     // Set thread hint
     num_threads_hint = cpus.empty() ? std::thread::hardware_concurrency() : least_frequent_cpu_occurences(cpus);
-    std::cout << "num_threads_hint" << num_threads_hint;
+    std::cout << "[CpuInfo::num_threads_hint]---> " << num_threads_hint << std::endl;
 #endif /* !defined(BARE_METAL) && !defined(_WIN64) && !defined(ARM_COMPUTE_DISABLE_THREADS_HINT) */
 
     return num_threads_hint;

@@ -33,6 +33,7 @@
 #include "arm_compute/function_info/GEMMInfo.h"
 #include "arm_compute/runtime/CL/CLTunerTypes.h"
 #include "arm_compute/runtime/CL/CLTypes.h"
+#include "arm_compute/runtime/Scheduler.h"
 
 #include <limits>
 #include <string>
@@ -67,6 +68,8 @@ using arm_compute::PoolingLayerInfo;
 using arm_compute::PoolingType;
 using arm_compute::PriorBoxLayerInfo;
 
+using arm_compute::Scheduler;
+
 using GraphID    = unsigned int;
 using TensorID   = unsigned int;
 using NodeID     = unsigned int;
@@ -96,6 +99,7 @@ struct GraphConfig
     int         num_threads{
         -1}; /**< Number of threads to use (thread capable backends), if 0 the backend will auto-initialize, if -1 the backend will stay as it is. */
     std::string threads_affinity{};
+    Scheduler::Type scheduler{};
     std::string   tuner_file{"acl_tuner.csv"};         /**< File to load/store tuning values from */
     std::string   mlgo_file{"heuristics.mlgo"};        /**< Filename to load MLGO heuristics from */
     CLBackendType backend_type{CLBackendType::Native}; /**< CL backend type to use */
@@ -108,6 +112,14 @@ enum class Target
     NEON,        /**< Arm® Neon™ capable target device */
     CL,          /**< OpenCL capable target device */
     CLVK,        /**< CLVK capable target device */
+};
+
+enum class CPUScheduler 
+{
+    ST,    /**< Single thread. */
+    CPP,   /**< C++11 threads. */
+    OMP,   /**< OpenMP. */
+    CUSTOM /**< Provided by the user. */
 };
 
 /** Supported Element-wise operations */
@@ -201,6 +213,54 @@ enum class NodeType
     Const,
 
     Dummy
+};
+
+static const char *NodeTypeStrings[] = {
+   "ActivationLayer",
+   "ArgMinMaxLayer",
+   "BatchNormalizationLayer",
+   "BoundingBoxTransformLayer",
+   "ChannelShuffleLayer",
+   "ConcatenateLayer",
+   "ConvolutionLayer",
+   "DeconvolutionLayer",
+   "DepthToSpaceLayer",
+   "DepthwiseConvolutionLayer",
+   "DequantizationLayer",
+   "DetectionOutputLayer",
+   "DetectionPostProcessLayer",
+   "EltwiseLayer",
+   "FlattenLayer",
+   "FullyConnectedLayer",
+   "FusedConvolutionBatchNormalizationLayer",
+   "FusedDepthwiseConvolutionBatchNormalizationLayer",
+   "GenerateProposalsLayer",
+   "L2NormalizeLayer",
+   "NormalizationLayer",
+   "NormalizePlanarYUVLayer",
+   "PadLayer",
+   "PermuteLayer",
+   "PoolingLayer",
+   "PReluLayer",
+   "PrintLayer",
+   "PriorBoxLayer",
+   "QuantizationLayer",
+   "ReductionOperationLayer",
+   "ReorgLayer",
+   "ReshapeLayer",
+   "ResizeLayer",
+   "ROIAlignLayer",
+   "SoftmaxLayer",
+   "SliceLayer",
+   "SplitLayer",
+   "StackLayer",
+   "StridedSliceLayer",
+   "UpsampleLayer",
+   "UnaryEltwiseLayer",
+   "Input",
+   "Output",
+   "Const",
+   "Dummy"
 };
 
 /** Backend Memory Manager affinity **/

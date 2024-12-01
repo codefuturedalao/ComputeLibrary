@@ -75,6 +75,29 @@ Target target_from_name(const std::string &name)
 #endif /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
 }
 
+CPUScheduler scheduler_from_name(const std::string &name)
+{
+    static const std::map<std::string, CPUScheduler> scheduler= {
+        {"st", CPUScheduler::ST},
+        {"cpp", CPUScheduler::CPP},
+        {"omp", CPUScheduler::OMP},
+        {"custom", CPUScheduler::CUSTOM},
+    };
+#ifndef ARM_COMPUTE_EXCEPTIONS_DISABLED
+    try
+    {
+#endif /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
+        return scheduler.at(arm_compute::utility::tolower(name));
+
+#ifndef ARM_COMPUTE_EXCEPTIONS_DISABLED
+    }
+    catch (const std::out_of_range &)
+    {
+        throw std::invalid_argument(name);
+    }
+#endif /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
+}
+
 ConvolutionMethod Convolution_method_from_name(const std::string &name)
 {
     static const std::map<std::string, ConvolutionMethod> methods = {

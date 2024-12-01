@@ -87,7 +87,8 @@
   "scheduler": {
     "single": [ "src/runtime/CPP/SingleThreadScheduler.cpp" ],
     "threads": [ "src/runtime/CPP/CPPScheduler.cpp" ],
-    "omp": [ "src/runtime/OMP/OMPScheduler.cpp"]
+    "omp": [ "src/runtime/OMP/OMPScheduler.cpp"],
+    "custom": [ "src/runtime/CPP/SmartScheduler.cpp" ]
   },
   "c_api": {
     "common": [

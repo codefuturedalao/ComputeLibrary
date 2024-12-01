@@ -28,6 +28,8 @@
 
 #include <cstdint>
 #include <functional>
+#include <iostream>
+#include <cstring>
 
 namespace arm_gemm {
 
@@ -242,30 +244,42 @@ bool find_implementation(const GemmArgs &args, const OutputStage &os, const Gemm
     const GemmImplementation<Top, Tret, OutputStage> *saved_impl = nullptr;
     uint64_t best_estimate = 0;
 
+    //std::cout << "Best : -------------" << typeid(Top).name() << "," << typeid(Tret).name() << args._Msize << ", " << args._Nsize << ", " << args._Ksize << ", " << args._nmulti << ", " << args._nbatches << std::endl;
     for (const GemmImplementation<Top, Tret, OutputStage> *i = gemms; i->method != GemmMethod::DEFAULT; i++) {
         /* Skip if this implementation doesn't support these args. */
         if (!i->do_is_supported(args, os)) {
+            //std::cout << "Best : " << i->name << " Unsupported" << std::endl;
             continue;
         }
 
         /* Skip if a specific method is requested and this is a different one. */
         if (cfg && cfg->method != GemmMethod::DEFAULT && i->method != cfg->method) {
+            //std::cout << "Best : " << i->name << " method unmatch" << std::endl;
             continue;
         }
 
         /* Skip if a filter is to be applied and it doesn't match. */
         if (cfg && cfg->filter != "" && !strstr(i->name, cfg->filter.c_str())) {
+            //std::cout << "Best : " << i->name << " filter unmatch" << std::endl;
             continue;
         }
 
         /* Test the cycle estimate */
         uint64_t estimate = i->do_cycle_estimate(args, os);
+        //std::cout << "Best : " << i->name << " , " << estimate << std::endl;
 
         /* Short circuit - if the estimate is zero, return this one immediately. */
         if (estimate==0) {
             impl=i;
             return true;
         }
+
+        /*
+        if (strcmp(i->name, "a64_hybrid_fp32_mla_6x16") == 0) {
+            impl=i;
+            return true;
+        }
+        */
 
         /* Otherwise, remember this is our best so far if we don't yet have
          * a valid candidate, or we beat the estimate.  */
@@ -321,6 +335,7 @@ UniqueGemmCommon<Top, Tret> gemm(const GemmArgs &args, const OutputStage &os) {
     const GemmImplementation<Top, Tret, OutputStage> *impl;
 
     if (find_implementation<Top, Tret, OutputStage>(args, os, impl)) {
+        //std::cout << "Best: " << impl->name << std::endl;
         return UniqueGemmCommon<Top, Tret>(impl->do_instantiate(args, os));
     }
 
@@ -331,6 +346,7 @@ template<typename Top, typename Tret, class OutputStage>
 KernelDescription get_gemm_method(const GemmArgs &args, const OutputStage &os) {
     const GemmImplementation<Top, Tret, OutputStage> *impl;
 
+    //std::cout << "Best : get_gemm_method" << std::endl;
     if (find_implementation<Top, Tret>(args, os, impl)) {
         return KernelDescription(impl->method, impl->name);
     }

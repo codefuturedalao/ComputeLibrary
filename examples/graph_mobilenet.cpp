@@ -100,6 +100,7 @@ public:
         GraphConfig config;
         config.num_threads = common_params.threads;
         config.threads_affinity = common_params.threads_affinity;
+        config.scheduler = (Scheduler::Type)common_params.scheduler;
         config.use_tuner   = common_params.enable_tuner;
         config.tuner_mode  = common_params.tuner_mode;
         config.tuner_file  = common_params.tuner_file;

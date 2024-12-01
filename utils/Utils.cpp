@@ -109,7 +109,7 @@ int run_example(int argc, char **argv, std::unique_ptr<Example> example)
         std::cout << "graph.run time " << duration_run << std::endl;
         example->do_teardown();
 
-        std::cout << "\nTest passed\n";
+        std::cout << "\n\033[1;32mTest passed\033[0m\n";
         auto end = std::chrono::high_resolution_clock::now();
         auto duration_example = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         std::cout << "Graph Sum Time " << duration_example << std::endl;

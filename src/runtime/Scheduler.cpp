@@ -35,6 +35,9 @@
 #include "arm_compute/runtime/OMP/OMPScheduler.h"
 #endif /* ARM_COMPUTE_OPENMP_SCHEDULER */
 
+//TODO: conditional macro
+#include "arm_compute/runtime/CPP/SmartScheduler.h"
+
 using namespace arm_compute;
 
 #if !ARM_COMPUTE_CPP_SCHEDULER && ARM_COMPUTE_OPENMP_SCHEDULER
@@ -47,7 +50,8 @@ Scheduler::Type Scheduler::_scheduler_type = Scheduler::Type::CPP;
 Scheduler::Type Scheduler::_scheduler_type = Scheduler::Type::ST;
 #endif /* ARM_COMPUTE_*_SCHEDULER */
 
-std::shared_ptr<IScheduler> Scheduler::_custom_scheduler = nullptr;
+//std::shared_ptr<IScheduler> Scheduler::_custom_scheduler = nullptr;
+std::shared_ptr<IScheduler> Scheduler::_custom_scheduler = std::make_shared<SmartScheduler>();
 
 namespace
 {
@@ -61,7 +65,7 @@ std::map<Scheduler::Type, std::unique_ptr<IScheduler>> init()
 #if defined(ARM_COMPUTE_OPENMP_SCHEDULER)
     m[Scheduler::Type::OMP] = std::make_unique<OMPScheduler>();
 #endif // defined(ARM_COMPUTE_OPENMP_SCHEDULER)
-
+    //m[Scheduler::Type::CUSTOM] = std::make_unique<SmartScheduler>();
     return m;
 }
 } // namespace
@@ -82,6 +86,10 @@ bool Scheduler::is_available(Type t)
     }
     else
     {
+        if (_schedulers.empty())
+        {
+            _schedulers = init();
+        }
         return _schedulers.find(t) != _schedulers.end();
     }
 }

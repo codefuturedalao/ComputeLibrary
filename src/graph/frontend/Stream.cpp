@@ -26,6 +26,7 @@
 #include "arm_compute/graph/frontend/ILayer.h"
 #include "arm_compute/graph/Utils.h"
 #include "arm_compute/runtime/IScheduler.h"
+#include <chrono>
 
 namespace arm_compute
 {
@@ -39,12 +40,14 @@ Stream::Stream(size_t id, std::string name) : _ctx(), _manager(), _g(id, std::mo
 
 Stream::~Stream()
 {
+    /* print the statistic information */
     std::cout << "kernels_num: " << IScheduler::kernel_duration.size() << std::endl;
     std::cout << "paral_kernels_num: " << IScheduler::sched_latency.size() << std::endl;
     std::cout << "kernel_duration: " << std::accumulate(IScheduler::kernel_duration.begin(), IScheduler::kernel_duration.end(), 0) << std::endl;
     std::cout << "sched_latency: " << std::accumulate(IScheduler::sched_latency.begin(), IScheduler::sched_latency.end(), 0) << std::endl;
     std::cout << "wait_latency: " << std::accumulate(IScheduler::wait_latency.begin(), IScheduler::wait_latency.end(), 0) << std::endl;
     std::cout << "thread_wait_latency: " << std::accumulate(IScheduler::thread_wait_latency.begin(), IScheduler::thread_wait_latency.end(), 0) << std::endl;
+    std::cout << "Change Occurs: " << std::accumulate(IScheduler::thread_wait_latency.begin(), IScheduler::thread_wait_latency.end(), 0) << std::endl;
 }
 
 void Stream::finalize(Target target, const GraphConfig &config)
@@ -56,7 +59,12 @@ void Stream::finalize(Target target, const GraphConfig &config)
 
 void Stream::run()
 {
+    std::cout << "\033[1;31m+++++++++++++++++++ Run Stage ++++++++++++++++\033[0m\n" << std::endl;
+    auto start = std::chrono::high_resolution_clock::now();
     _manager.execute_graph(_g);
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration_run = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << " Run Time: " << duration_run << std::endl;
 }
 
 void Stream::add_layer(ILayer &layer)

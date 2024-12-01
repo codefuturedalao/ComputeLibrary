@@ -137,14 +137,15 @@ public:
     static std::mutex mtx;     //file mutex
     static std::ofstream _outputFile;
     static bool sw_flag;
+    static bool log_flag;
     static const int capacity_arg;
     static const int capacity_arg_tagged;
     static const int num_it;
     static std::vector<int> sched_latency;  //interval - max
     static std::vector<int> wait_latency;   //max - min
     static std::vector<int> thread_wait_latency;   //max - min
-                                               static std::vector<int> workload_time;
-                                               static std::vector<std::chrono::high_resolution_clock::time_point> thread_end_time;
+    static std::vector<int> workload_time;
+    static std::vector<std::chrono::high_resolution_clock::time_point> thread_end_time;
     static std::vector<int> kernel_duration;
     static void write_to_log_file(const std::string& message);
     /** Default constructor. */

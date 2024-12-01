@@ -386,64 +386,6 @@ inline void vst1q_u32_x2_(const uint32_t *ptr, const uint32x4x2_t &val)
     vst1q_u32(const_cast<uint32_t *>(ptr + 4), val.val[1]);
 }
 
-/*
-bool set_policy_frequency(int policy_idx, int freq) {
-    std::string str = "/sys/devices/system/cpu/cpufreq/policy" + std::to_string(policy_idx) + "/scaling_max_freq";
-    std::ofstream file(str);
-
-    if (!file.is_open()) {
-        std::cerr << "Failed to open " << str << std::endl;
-        return false;
-    }
-
-    file << freq;
-
-    file.close();
-
-    if(!file) {
-        //std::cerr << "Failed to write to " << str << std::endl;
-        return false;
-    } else {
-        //std::cout << "Successfully wrote " << freq << " to " << str << std::endl;
-        return true;
-    }
-}
-*/
-
-/*
-int get_thread_affinity() {
-    cpu_set_t set;
-    pid_t tid = gettid();
-
-    CPU_ZERO(&set);
-    ARM_COMPUTE_EXIT_ON_MSG(sched_getaffinity(tid, sizeof(cpu_set_t), &set), "Error getting thread affinity");
-    for(int i = 0; i < CPU_SETSIZE; i++) {
-        if(CPU_ISSET(i, &set)) {
-            return i;
-        }
-    }
-    return 1024;    //make sure > 4
-}
-*/
-
-/*
-void set_thread_affinity(int core_id)
-{
-    if (core_id < 0)
-    {
-        return;
-    }
-
-#if !defined(_WIN64) && !defined(__APPLE__) && !defined(__OpenBSD__)
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    CPU_SET(core_id, &set);
-    ARM_COMPUTE_EXIT_ON_MSG(sched_setaffinity(0, sizeof(set), &set), "Error setting thread affinity");
-#endif 
-*/
-/* !defined(__APPLE__) && !defined(__OpenBSD__) */
-//}
-
 void transpose_32bit_elements(const ITensor *in, ITensor *out, const Window &window)
 {
     constexpr int window_step_x            = 8;
@@ -461,8 +403,8 @@ void transpose_32bit_elements(const ITensor *in, ITensor *out, const Window &win
     //std::cout << "left_over_loop_y" << std::to_string(left_over_loop_y) << std::endl;
     //int numeration_y = window.num_iterations(1); 
     if(left_over_loop_y == 1) {
-        std::cout << "end_y" << window_end_y << std::endl;
-        std::cout << "start_y" << window_start_y << std::endl;
+        std::cout << "[transpose_32bit_elements] end_y---> " << window_end_y << std::endl;
+        std::cout << "[transpose_32bit_elements] start_y--->" << window_start_y << std::endl;
     }
 
     Window window_in(window);
