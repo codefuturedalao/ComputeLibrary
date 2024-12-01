@@ -334,8 +334,6 @@ template<typename Tlop, typename Trop, typename Tret, class OutputStage>
 UniqueGemmCommon<Tlop, Trop, Tret> gemm(const GemmArgs &args, const OutputStage &os) {
     const GemmImplementation<Tlop, Trop, Tret, OutputStage> *impl;
 
-    if (find_implementation<Top, Tret, OutputStage>(args, os, impl)) {
-        return UniqueGemmCommon<Top, Tret>(impl->do_instantiate(args, os));
     if (find_implementation<Tlop, Trop, Tret, OutputStage>(args, os, impl)) {
         //std::cout << "Best: " << impl->name << std::endl;
         return UniqueGemmCommon<Tlop, Trop, Tret>(impl->do_instantiate(args, os));
