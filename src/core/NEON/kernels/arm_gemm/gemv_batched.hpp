@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021 Arm Limited.
+ * Copyright (c) 2017-2021, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -31,9 +31,9 @@ namespace arm_gemm {
  * efficiently as a GEMM (with M'=nbatches and nbatches'=1).  This wrapper
  * implements this.  */
 template<typename To, typename Tr>
-class GemvBatched : public GemmCommon<To, Tr> {
+class GemvBatched : public GemmCommon<To, To, Tr> {
 private:
-    UniqueGemmCommon<To, Tr> _subgemm = nullptr;
+    UniqueGemmCommon<To, To, Tr> _subgemm = nullptr;
 
 public:
     GemvBatched(const GemmArgs &args) {
@@ -42,7 +42,7 @@ public:
         newargs._Msize = args._nbatches;
         newargs._nbatches = 1;
         newargs._cfg = nullptr;
-        _subgemm = gemm<To,Tr>(newargs);
+        _subgemm = gemm<To,To,Tr>(newargs);
     }
 
     void set_arrays(const To *A, const int, const int A_batch_stride, const int A_multi_stride,
@@ -88,8 +88,8 @@ public:
         return _subgemm->get_B_pretransposed_array_size();
     }
 
-    void pretranspose_B_array(void *buffer, const To *B, const int ldb, const int B_multi_stride) override {
-        _subgemm->pretranspose_B_array(buffer, B, ldb, B_multi_stride);
+    void pretranspose_B_array(void *buffer, const To *B, const int ldb, const int B_multi_stride, bool transposed) override {
+        _subgemm->pretranspose_B_array(buffer, B, ldb, B_multi_stride, transposed);
     }
 
     void set_pretransposed_B_data(void *buffer) override {

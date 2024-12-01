@@ -1,5 +1,5 @@
 ///
-/// Copyright (c) 2021-2023 Arm Limited.
+/// Copyright (c) 2021-2024 Arm Limited.
 ///
 /// SPDX-License-Identifier: MIT
 ///
@@ -208,7 +208,6 @@ where N = batches, C = channels, H = height, W = width, D = depth
     <tr><td>QASYMM8<td>QASYMM8<td>QASYMM8
     <tr><td>QASYMM8_SIGNED<td>QASYMM8_SIGNED<td>QASYMM8_SIGNED
     <tr><td>QSYMM16<td>QSYMM16<td>QASYMM16
-    <tr><td>QSYMM16<td>QSYMM16<td>S32
     <tr><td>U8<td>U8<td>U8
     <tr><td>S16<td>S16<td>S16
     <tr><td>S32<td>S32<td>S32
@@ -456,16 +455,22 @@ where N = batches, C = channels, H = height, W = width, D = depth
   <td>
     <table>
     <tr><th>src<th>dst
-    <tr><td>U8<td>S8, U16, S16, U32, S32, F16, F32
-    <tr><td>S8<td>U8, U16, S16, U32, S32, F16, F32
-    <tr><td>U16<td>U8, S8, S16, U32, S32, F16, F32
-    <tr><td>S16<td>U8, S8, U16, U32, S32, F16, F32
-    <tr><td>U32<td>U8, S8, U16, S16, S32, F16, F32
-    <tr><td>S32<td>U8, S8, U16, S16, U32, F16, F32
-    <tr><td>U64<td>U8, S8, U16, S16, U32, S32, F16, F32
-    <tr><td>S64<td>U8, S8, U16, S16, U32, S32, F16, F32
-    <tr><td>F16<td>U8, S8, U16, S16, S32, U32, F32
-    <tr><td>F32<td>U8, S8, U16, S16, S32, U32, F16
+    <tr><td>U8<td>S8, U16, S16, U32, S32, F16, F32, QASYMM8_SIGNED, QSYMM8, QSYMM8_PER_CHANNEL, 16-bit Quantized
+    <tr><td>S8<td>U8, U16, S16, U32, S32, F16, F32, QASYMM8, 16-bit Quantized
+    <tr><td>U16<td>U8, S8, S16, U32, S32, F16, F32, 8-bit Quantized, QSYMM16
+    <tr><td>S16<td>U8, S8, U16, U32, S32, F16, F32, 8-bit Quantized, QASYMM16
+    <tr><td>U32<td>U8, S8, U16, S16, S32, F16, F32, All Quantized
+    <tr><td>S32<td>U8, S8, U16, S16, U32, F16, F32, All Quantized
+    <tr><td>U64<td>U8, S8, U16, S16, U32, S32, F16, F32, All Quantized
+    <tr><td>S64<td>U8, S8, U16, S16, U32, S32, F16, F32, All Quantized
+    <tr><td>F16<td>U8, S8, U16, S16, S32, U32, F32, All Quantized
+    <tr><td>F32<td>U8, S8, U16, S16, S32, U32, F16, All Quantized
+    <tr><td>QASYMM8<td>S8, U16, S16, U32, S32, F16, F32, QASYMM8_SIGNED, QSYMM8, QSYMM8_PER_CHANNEL, 16-bit Quantized
+    <tr><td>QASYMM8_SIGNED<td>U8, U16, S16, U32, S32, F16, F32, QASYMM8, 16-bit Quantized
+    <tr><td>QSYMM8<td>U8, U16, S16, U32, S32, F16, F32, QASYMM8, 16-bit Quantized
+    <tr><td>QSYMM8_PER_CHANNEL<td>U8, U16, S16, U32, S32, F16, F32, 16-bit Quantized
+    <tr><td>QASYMM16<td>U8, S8, U16, U32, S32, F16, F32, 8-bit Quantized, QSYMM16
+    <tr><td>QSYMM16<td>U8, S8, U16, U32, S32, F16, F32, 8-bit Quantized, QASYMM16
     </table>
 <tr>
   <td rowspan="2">ChannelShuffleLayer
@@ -602,6 +607,7 @@ where N = batches, C = channels, H = height, W = width, D = depth
     <tr><td>F16<td>F16<td>F16<td>F16
     <tr><td>F32<td>F32<td>F32<td>F32
     <tr><td>QASYMM8<td>QASYMM8<td>S32<td>QASYMM8
+    <tr><td>QASYMM8<td>QASYMM8_SIGNED<td>S32<td>QASYMM8
     <tr><td>QASYMM8<td>QSYMM8_PER_CHANNEL<td>S32<td>QASYMM8
     <tr><td>QASYMM8_SIGNED<td>QASYMM8_SIGNED<td>S32<td>QASYMM8_SIGNED
     <tr><td>QASYMM8_SIGNED<td>QSYMM8_PER_CHANNEL<td>S32<td>QASYMM8_SIGNED
@@ -1762,17 +1768,20 @@ where N = batches, C = channels, H = height, W = width, D = depth
     <table>
     <tr><th>src0<th>src1<th>src2<th>dst
     <tr><td>QASYMM8<td>QASYMM8<td>S32<td>QASYMM8
+    <tr><td>QASYMM8<td>QASYMM8_SIGNED<td>S32<td>QASYMM8
     <tr><td>QASYMM8<td>QSYMM8_PER_CHANNEL<td>S32<td>QASYMM8
     <tr><td>QASYMM8<td>QSYMM8<td>S32<td>QASYMM8
     <tr><td>QASYMM8<td>QASYMM8<td>S32<td>S32
     <tr><td>QASYMM8<td>QSYMM8_PER_CHANNEL<td>S32<td>S32
     <tr><td>QASYMM8<td>QSYMM8<td>S32<td>S32
+    <tr><td>QASYMM8<td>QASYMM8_SIGNED<td>F32<td>F32
     <tr><td>QASYMM8_SIGNED<td>QASYMM8_SIGNED<td>S32<td>QASYMM8_SIGNED
     <tr><td>QASYMM8_SIGNED<td>QSYMM8_PER_CHANNEL<td>S32<td>QASYMM8_SIGNED
     <tr><td>QASYMM8_SIGNED<td>QSYMM8<td>S32<td>QASYMM8_SIGNED
     <tr><td>QASYMM8_SIGNED<td>QASYMM8_SIGNED<td>S32<td>S32
     <tr><td>QASYMM8_SIGNED<td>QSYMM8_PER_CHANNEL<td>S32<td>S32
     <tr><td>QASYMM8_SIGNED<td>QSYMM8<td>S32<td>S32
+    <tr><td>QASYMM8_SIGNED<td>QASYMM8_SIGNED<td>F32<td>F32
     </table>
 <tr>
   <td>CLGEMMLowpMatrixMultiplyCore
@@ -2091,6 +2100,7 @@ where N = batches, C = channels, H = height, W = width, D = depth
     <tr><th>lhs<th>rhs<th>dst
     <tr><td>F32<td>F32<td>F32
     <tr><td>F16<td>F16<td>F16
+    <tr><td>BFLOAT16<td>BFLOAT16<td>BFLOAT16
     <tr><td>QASYMM8_SIGNED<td>QASYMM8_SIGNED<td>QASYMM8_SIGNED
     <tr><td>QASYMM8<td>QASYMM8<td>QASYMM8
     </table>
@@ -2314,8 +2324,9 @@ where N = batches, C = channels, H = height, W = width, D = depth
     <tr><td>U8<td>S16<td>S16
     <tr><td>S16<td>U8<td>S16
     <tr><td>S16<td>S16<td>S16
+    <tr><td>S32<td>S32<td>S32
     <tr><td>F16<td>F16<td>F16
-    <tr><td>F32<td>S32<td>F32
+    <tr><td>F32<td>F32<td>F32
     </table>
 <tr>
   <td>CLPixelWiseMultiplication
@@ -2747,7 +2758,7 @@ where N = batches, C = channels, H = height, W = width, D = depth
   <td>
     <table>
     <tr><th>src0<th>src1<th>dst
-    <tr><td>All<td>U32, S32<td>All
+    <tr><td>All except SIZET <= 32-bits<td>U32, S32<td>All except SIZET <= 32-bits
     </table>
 <tr>
   <td>CLReverse

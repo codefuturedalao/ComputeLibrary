@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Arm Limited.
+ * Copyright (c) 2017-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -74,16 +74,16 @@ const RelativeTolerance<float> rel_tolerance_winograd_3x3_f32(0.05f); /**< Relat
 const AbsoluteTolerance<float> abs_tolerance_f32(0.002f);             /**< Absolute tolerance for FP32 types */
 const AbsoluteTolerance<float> abs_tolerance_1xN_f32(0.0041f);        /**< Absolute tolerance for FP32 types */
 
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
 const AbsoluteTolerance<half> tolerance_convolution_layer_f16(half(0.4f));
 constexpr float               tolerance_num_f16 = 0.15f;
-#endif /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+#endif /* ARM_COMPUTE_ENABLE_FP16 */
 
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
 const RelativeTolerance<half_float::half> rel_tolerance_f16(half_float::half(0.2f)); /**< Relative tolerance value for FP16 types */
 const AbsoluteTolerance<float>            abs_tolerance_f16(0.2f);                   /**< Absolute tolerance for FP16 types */
 constexpr float                           tolerance_num = 0.07f;                     /**< Tolerance number for the FP16 implementation */
-#endif                                                                               /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+#endif                                                                               /* ARM_COMPUTE_ENABLE_FP16 */
 
 #ifdef ARM_COMPUTE_ENABLE_SME
 // TODO(COMPMID-6011): SME kernels and the reference model use different rounding mode.
@@ -96,9 +96,9 @@ constexpr AbsoluteTolerance<float> tolerance_qasymm8(0.0); /**< Tolerance value 
 /** CNN data types */
 const auto CNNDataTypes = make("DataType",
 {
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
     DataType::F16,
-#endif /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+#endif /* ARM_COMPUTE_ENABLE_FP16 */
     DataType::F32,
     DataType::QASYMM8,
 });
@@ -107,6 +107,11 @@ const auto ActivationFunctionsDataset = make("ActivationInfo",
     ActivationLayerInfo(),
     ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::RELU),
     ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::BOUNDED_RELU, 0.5f)
+});
+
+const auto NoActivation = make("ActivationInfo",
+{
+    ActivationLayerInfo(),
 });
 
 const auto ActivationFunctionsDatasetNightly = make("ActivationInfo",
@@ -142,6 +147,45 @@ const auto QuantizationData = make("QuantizationInfo",
 
 TEST_SUITE(NEON)
 TEST_SUITE(ConvolutionLayer)
+DATA_TEST_CASE(SupportedTypes, framework::DatasetMode::ALL, zip(
+                make("DataType", {
+                    DataType::F32,
+                    DataType::QASYMM8,
+                    DataType::QASYMM8,
+                    DataType::QASYMM8_SIGNED
+                }),
+                make("WeightsDataType", {
+                    DataType::F32,
+                    DataType::QASYMM8,
+                    DataType::QASYMM8_SIGNED,
+                    DataType::QASYMM8
+                }),
+                make("Expected",
+                {
+                    true,
+                    true,
+                    true,
+                    false
+                })),
+data_type_const, weights_data_type_const, expected_const)
+{
+    TensorInfo input_info   = TensorInfo(TensorShape(3U, 3U, 1U), 1, data_type_const);
+    TensorInfo weights_info = TensorInfo(TensorShape(2U, 2U, 1U, 1U), 1, weights_data_type_const);
+    TensorInfo output_info  = TensorInfo(TensorShape(2U, 2U, 1U), 1, data_type_const);
+
+    input_info.set_quantization_info(arm_compute::QuantizationInfo(1, 0));
+    weights_info.set_quantization_info(arm_compute::QuantizationInfo(1, 0));
+    output_info.set_quantization_info(arm_compute::QuantizationInfo(1, 0));
+
+    Status status = NEConvolutionLayer::validate(
+                        &input_info,
+                        &weights_info,
+                        nullptr,
+                        &output_info,
+                        PadStrideInfo());
+
+    ARM_COMPUTE_EXPECT(bool(status) == expected_const, framework::LogLevel::ERRORS);
+}
 
 // *INDENT-OFF*
 // clang-format off
@@ -252,7 +296,7 @@ TEST_CASE(MemoryInjection, framework::DatasetMode::ALL)
 
     for(size_t i = 0; i < result_0.info()->tensor_shape().total_size(); ++i)
     {
-        ARM_COMPUTE_EXPECT(((float *)result_0.buffer())[i] == ((float *)result_1.buffer())[i], framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(reinterpret_cast<float *>(result_0.buffer())[i] == reinterpret_cast<float *>(result_1.buffer())[i], framework::LogLevel::ERRORS);
     }
 }
 
@@ -298,7 +342,7 @@ TEST_CASE(MultipleExecutionWithConfigure, framework::DatasetMode::ALL)
 
     for(size_t i = 0; i < result_0.info()->tensor_shape().total_size(); ++i)
     {
-        ARM_COMPUTE_EXPECT(((float *)result_0.buffer())[i] == ((float *)result_1.buffer())[i], framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(reinterpret_cast<float *>(result_0.buffer())[i] == reinterpret_cast<float *>(result_1.buffer())[i], framework::LogLevel::ERRORS);
     }
 }
 
@@ -575,7 +619,7 @@ FIXTURE_DATA_TEST_CASE(RunSmall, NEWinogradConvolutionLayerFixture<float>, frame
 
 /// It's enough to run the activations for a single weight/input combination and data type because
 /// activation function is called on top of the winograd output as a separate operator
-/// TODO: Enable after COMPMID-6573 is resolved
+/// TODO(COMPMID-6573): Enable after COMPMID-6573 is resolved
 FIXTURE_DATA_TEST_CASE(RunActivations, NEWinogradConvolutionLayerFixture<float>, framework::DatasetMode::DISABLED,
                        combine(
                            make("Input", TensorShape(3U, 3U, 32U)),
@@ -643,9 +687,9 @@ FIXTURE_DATA_TEST_CASE(RunSmallNoBias, NEWinogradConvolutionLayerNoBiasFixture<f
 
 TEST_SUITE_END() // FP32
 
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
 TEST_SUITE(FP16)
-using CLWinogradConvolutionLayerFastMathFixture16 = WinogradConvolutionLayerFastMathValidationFixture<Tensor, Accessor, NEWinogradConvolutionLayer, half, float>;
+using NEWinogradConvolutionLayerFastMathFixture16 = WinogradConvolutionLayerFastMathValidationFixture<Tensor, Accessor, NEWinogradConvolutionLayer, half, float>;
 
 DATA_TEST_CASE(ValidateConvolutionMethod, framework::DatasetMode::ALL, zip(
                    make("InputInfo", { TensorInfo(TensorShape(18U, 18U, 32U), 1, DataType::F16),
@@ -668,37 +712,61 @@ DATA_TEST_CASE(ValidateConvolutionMethod, framework::DatasetMode::ALL, zip(
 make("Expected", { ConvolutionMethod::GEMM, ConvolutionMethod::WINOGRAD })),
 input_info, weights_info, output_info, conv_info, fast_math, expected)
 {
-    ConvolutionMethod is_valid = NEConvolutionLayer::get_convolution_method(&input_info.clone()->set_is_resizable(true),
-                                                                            &weights_info.clone()->set_is_resizable(true),
-                                                                            &output_info.clone()->set_is_resizable(true), conv_info, WeightsInfo(), Size2D(1U, 1U), ActivationLayerInfo(), fast_math);
-    ARM_COMPUTE_EXPECT(is_valid == expected, framework::LogLevel::ERRORS);
+    if(CPUInfo::get().has_fp16())
+    {
+        ConvolutionMethod is_valid = NEConvolutionLayer::get_convolution_method(&input_info.clone()->set_is_resizable(true),
+                                                                                &weights_info.clone()->set_is_resizable(true),
+                                                                                &output_info.clone()->set_is_resizable(true), conv_info, WeightsInfo(), Size2D(1U, 1U), ActivationLayerInfo(), fast_math);
+        ARM_COMPUTE_EXPECT(is_valid == expected, framework::LogLevel::ERRORS);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 
 TEST_SUITE(Conv3x3)
-FIXTURE_DATA_TEST_CASE(RunSmall, CLWinogradConvolutionLayerFastMathFixture16, framework::DatasetMode::PRECOMMIT,
+FIXTURE_DATA_TEST_CASE(RunSmall, NEWinogradConvolutionLayerFastMathFixture16, framework::DatasetMode::PRECOMMIT,
                        combine(datasets::SmallWinogradConvolutionLayer3x3Dataset(),
                                make("DataType", { DataType::F16 }),
                                ActivationFunctionsDataset,
                                make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC })))
 
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_convolution_layer_f16, tolerance_num_f16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_convolution_layer_f16, tolerance_num_f16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 
-FIXTURE_DATA_TEST_CASE(RunLarge, CLWinogradConvolutionLayerFastMathFixture16, framework::DatasetMode::NIGHTLY,
+FIXTURE_DATA_TEST_CASE(RunLarge, NEWinogradConvolutionLayerFastMathFixture16, framework::DatasetMode::NIGHTLY,
                        combine(datasets::LargeWinogradConvolutionLayer3x3Dataset(),
                                make("DataType", { DataType::F16 }),
                                make("ActivationInfo", { ActivationLayerInfo() }),
                                make("DataLayout", { DataLayout::NHWC })))
 
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_convolution_layer_f16, tolerance_num_f16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_convolution_layer_f16, tolerance_num_f16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 TEST_SUITE_END() // Conv3x3
 TEST_SUITE_END() // FP16
-#endif           /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+#endif           /* ARM_COMPUTE_ENABLE_FP16 */
 TEST_SUITE_END() // WinogradLayer
 
 #ifdef ARM_COMPUTE_ENABLE_FIXED_FORMAT_KERNELS
@@ -762,21 +830,33 @@ FIXTURE_DATA_TEST_CASE(UC2_2_NEGEMMConvolutionLayer, HasOptImplFixtureNoFastMath
 }
 
 #if defined(ARM_COMPUTE_ENABLE_BF16)
-
+// These tests currently only works with SVE length 256
+// If other SVE length is used a kernel will fail to be found
+// This needs to be addressed in order to ensure it doesn't revert to FP32 kernels for systems with SVE length other than 256
 FIXTURE_DATA_TEST_CASE(UC2_2_CpuGemmConv2d_FastMath, HasOptImplFixtureFastMath<cpu::CpuGemmConv2d>, framework::DatasetMode::ALL,
                        combine(framework::dataset::make("DataType", { DataType::F32 }),
                                framework::dataset::make("QueryWeightFormat", { arm_compute::WeightFormat::OHWIo8i4_bf16 })))
 {
-    ARM_COMPUTE_EXPECT(_kernel_found, framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT_EQUAL(_computed_weight_format, arm_compute::WeightFormat::OHWIo8i4_bf16, framework::LogLevel::ERRORS);
+    if(Scheduler::get().cpu_info().has_bf16() && (arm_gemm::utils::get_vector_length<float>() == 8)){
+        ARM_COMPUTE_EXPECT(_kernel_found, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT_EQUAL(_computed_weight_format, arm_compute::WeightFormat::OHWIo8i4_bf16, framework::LogLevel::ERRORS);
+    }
+    else{
+        ARM_COMPUTE_EXPECT(!_kernel_found, framework::LogLevel::ERRORS);
+    }
 }
 
 FIXTURE_DATA_TEST_CASE(UC2_2_NEGEMMConvolutionLayer_FastMath, HasOptImplFixtureFastMath<NEGEMMConvolutionLayer>, framework::DatasetMode::ALL,
                        combine(framework::dataset::make("DataType", { DataType::F32 }),
                                framework::dataset::make("QueryWeightFormat", { arm_compute::WeightFormat::OHWIo8i4_bf16 })))
 {
-    ARM_COMPUTE_EXPECT(_kernel_found, framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(_computed_weight_format == arm_compute::WeightFormat::OHWIo8i4_bf16, framework::LogLevel::ERRORS);
+    if(Scheduler::get().cpu_info().has_bf16() && (arm_gemm::utils::get_vector_length<float>() == 8)){
+        ARM_COMPUTE_EXPECT(_kernel_found, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(_computed_weight_format == arm_compute::WeightFormat::OHWIo8i4_bf16, framework::LogLevel::ERRORS);
+    }
+    else{
+        ARM_COMPUTE_EXPECT(!_kernel_found, framework::LogLevel::ERRORS);
+    }
 }
 
 #endif // ARM_COMPUTE_ENABLE_BF16
@@ -847,20 +927,36 @@ FIXTURE_DATA_TEST_CASE(UC3_2_CpuGemmConv2d_FastMath, HasOptImplFixtureFastMath<c
                        combine(framework::dataset::make("DataType", { DataType::F32 }),
                                framework::dataset::make("QueryWeightFormat", { arm_compute::WeightFormat::ANY })))
 {
-    ARM_COMPUTE_EXPECT(_kernel_found, framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(_computed_weight_format != arm_compute::WeightFormat::ANY, framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(_computed_weight_format != arm_compute::WeightFormat::UNSPECIFIED, framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(arm_compute::is_fixed_format_fast_math(_computed_weight_format), framework::LogLevel::ERRORS);
+    if(Scheduler::get().cpu_info().has_bf16()){
+        ARM_COMPUTE_EXPECT(_kernel_found, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(_computed_weight_format != arm_compute::WeightFormat::ANY, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(_computed_weight_format != arm_compute::WeightFormat::UNSPECIFIED, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(arm_compute::is_fixed_format_fast_math(_computed_weight_format), framework::LogLevel::ERRORS);
+    }
+    else{
+        ARM_COMPUTE_EXPECT(_kernel_found, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(_computed_weight_format != arm_compute::WeightFormat::ANY, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(_computed_weight_format != arm_compute::WeightFormat::UNSPECIFIED, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(!arm_compute::is_fixed_format_fast_math(_computed_weight_format), framework::LogLevel::ERRORS);
+    }
 }
 
 FIXTURE_DATA_TEST_CASE(UC3_2_NEGEMMConvolutionLayer_FastMath, HasOptImplFixtureFastMath<NEGEMMConvolutionLayer>, framework::DatasetMode::ALL,
                        combine(framework::dataset::make("DataType", { DataType::F32 }),
                                framework::dataset::make("QueryWeightFormat", { arm_compute::WeightFormat::ANY })))
 {
-    ARM_COMPUTE_EXPECT(_kernel_found, framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(_computed_weight_format != arm_compute::WeightFormat::ANY, framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(_computed_weight_format != arm_compute::WeightFormat::UNSPECIFIED, framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(arm_compute::is_fixed_format_fast_math(_computed_weight_format), framework::LogLevel::ERRORS);
+    if(Scheduler::get().cpu_info().has_bf16()){
+        ARM_COMPUTE_EXPECT(_kernel_found, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(_computed_weight_format != arm_compute::WeightFormat::ANY, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(_computed_weight_format != arm_compute::WeightFormat::UNSPECIFIED, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(arm_compute::is_fixed_format_fast_math(_computed_weight_format), framework::LogLevel::ERRORS);
+    }
+    else{
+        ARM_COMPUTE_EXPECT(_kernel_found, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(_computed_weight_format != arm_compute::WeightFormat::ANY, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(_computed_weight_format != arm_compute::WeightFormat::UNSPECIFIED, framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(!arm_compute::is_fixed_format_fast_math(_computed_weight_format), framework::LogLevel::ERRORS);
+    }
 }
 
 #endif // ARM_COMPUTE_ENABLE_BF16
@@ -963,8 +1059,16 @@ FIXTURE_DATA_TEST_CASE(RunSmallHalf, VarWidth<half>, framework::DatasetMode::ALL
                                        framework::dataset::make("DataLayout", { DataLayout::NHWC })),
                                framework::dataset::make("ACL Scalar type", { DataType::F16 })))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, rel_tolerance_f16, 0.f, half(abs_tolerance_f16));
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, rel_tolerance_f16, 0.f, half(abs_tolerance_f16));
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 #endif // ARM_COMPUTE_ENABLE_FP16
 
@@ -1004,8 +1108,16 @@ FIXTURE_DATA_TEST_CASE(NEGEMMRunSmallHalf, NEGEMMVarWidth<half>, framework::Data
                                        framework::dataset::make("DataLayout", { DataLayout::NHWC })),
                                framework::dataset::make("ACL Scalar type", { DataType::F16 })))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, rel_tolerance_f16, 0.f, half(abs_tolerance_f16));
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, rel_tolerance_f16, 0.f, half(abs_tolerance_f16));
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 #endif // ARM_COMPUTE_ENABLE_FP16
 
@@ -1086,7 +1198,7 @@ TEST_CASE(MemoryInjection, framework::DatasetMode::ALL)
     auto result_1 = run_conv();
     for(size_t i = 0; i < result_0.info()->tensor_shape().total_size(); ++i)
     {
-        ARM_COMPUTE_EXPECT(((float *)result_0.buffer())[i] == ((float *)result_1.buffer())[i], framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(reinterpret_cast<float *>(result_0.buffer())[i] == reinterpret_cast<float *>(result_1.buffer())[i], framework::LogLevel::ERRORS);
     }
 }
 
@@ -1127,7 +1239,7 @@ TEST_CASE(MultipleExecutionWithConfigure, framework::DatasetMode::ALL)
     auto result_1 = run_conv();
     for(size_t i = 0; i < result_0.info()->tensor_shape().total_size(); ++i)
     {
-        ARM_COMPUTE_EXPECT(((float *)result_0.buffer())[i] == ((float *)result_1.buffer())[i], framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(reinterpret_cast<float *>(result_0.buffer())[i] == reinterpret_cast<float *>(result_1.buffer())[i], framework::LogLevel::ERRORS);
     }
 }
 
@@ -1136,7 +1248,7 @@ TEST_SUITE(Float)
 TEST_SUITE(BFLOAT16)
 FIXTURE_DATA_TEST_CASE(RunSmall, NEGEMMConvolutionLayerFixture<float>, framework::DatasetMode::ALL, combine(combine(combine(combine(datasets::SmallConvolutionLayerDataset(),
                                                                                                                     framework::dataset::make("ReshapeWeights", { true })),
-                                                                                                                    framework::dataset::make("DataType", DataType::BFLOAT16)),
+                                                                                                                    framework::dataset::make("DataType", Scheduler::get().cpu_info().has_bf16() ? DataType::BFLOAT16 : DataType::F32)),
                                                                                                                     framework::dataset::make("DataLayout", { DataLayout::NHWC })),
                                                                                                             ActivationFunctionsDataset))
 {
@@ -1146,7 +1258,7 @@ FIXTURE_DATA_TEST_CASE(RunSmall, NEGEMMConvolutionLayerFixture<float>, framework
 TEST_SUITE_END() // BFLOAT16
 #endif           /* defined(ARM_COMPUTE_ENABLE_BF16) */
 
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
 TEST_SUITE(FP16)
 FIXTURE_DATA_TEST_CASE(RunSmall, NEGEMMConvolutionLayerFixture<half>, framework::DatasetMode::ALL, combine(combine(combine(combine(datasets::SmallConvolutionLayerDataset(),
                                                                                                                    framework::dataset::make("ReshapeWeights", { true })),
@@ -1154,11 +1266,19 @@ FIXTURE_DATA_TEST_CASE(RunSmall, NEGEMMConvolutionLayerFixture<half>, framework:
                                                                                                                    framework::dataset::make("DataLayout", { DataLayout::NCHW })),
                                                                                                            ActivationFunctionsDataset))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, rel_tolerance_f16, tolerance_num, abs_tolerance_f16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, rel_tolerance_f16, tolerance_num, abs_tolerance_f16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 TEST_SUITE_END() // FP16
-#endif           /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+#endif           /* ARM_COMPUTE_ENABLE_FP16 */
 
 TEST_SUITE(FP32)
 FIXTURE_DATA_TEST_CASE(RunSmall, NEGEMMConvolutionLayerFixture<float>, framework::DatasetMode::ALL, combine(combine(combine(combine(datasets::SmallConvolutionLayerDataset(),
@@ -1201,14 +1321,32 @@ FIXTURE_DATA_TEST_CASE(RunPaddedWeights, NEGEMMConvolutionLayerPaddedWeightsFixt
     // Validate output
     validate(Accessor(_target), _reference, rel_tolerance_f32, 0.f, float(abs_tolerance_f32));
 }
+
+// This very large shape test is required to test heuristic paths where the tensor size is > 1e7 bytes
+// and weight dimensions larger than 7
+FIXTURE_DATA_TEST_CASE(RunVeryLarge, NEGEMMConvolutionLayerFixture<float>, framework::DatasetMode::NIGHTLY,
+    combine(datasets::VeryLargeConvolutionLayerDataset(),
+        framework::dataset::make("ReshapeWeights", { true }),
+        framework::dataset::make("DataType", DataType::F32),
+        framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC }),
+        NoActivation))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, rel_tolerance_f32, 0.f, float(abs_tolerance_f32));
+}
+
 TEST_SUITE_END() // FP32
 TEST_SUITE_END() // Float
 
-// TODO: COMPMID-6596 Extend quantized tests with at least one suite where the weight is padded (the legacy case, see floating point's RunPaddedWeights)
+// TODO(COMPMID-6573): Extend quantized tests with at least one suite where the weight is padded (the legacy case, see floating point's RunPaddedWeights)
+template <typename T>
+using NEGEMMConvolutionLayerForUpdatedStaticQuantInfoAfterConfigureFixture = ConvolutionValidationForUpdatedStaticQuantInfoAfterConfigureFixture<Tensor, Accessor, NEGEMMConvolutionLayer, T>;
 template <typename T>
 using NEGEMMConvolutionLayerQuantizedFixture = ConvolutionValidationQuantizedFixture<Tensor, Accessor, NEConvolutionLayer, T>;
 template <typename T>
 using NEGEMMConvolutionLayerQuantizedMixedDataLayoutFixture = ConvolutionValidationQuantizedFixture<Tensor, Accessor, NEConvolutionLayer, T, true>;
+
+using NEGEMMConvolutionLayerQuantizedMixedSignFixture = ConvolutionValidationQuantizedMixedTypeFixture<Tensor, Accessor, NEConvolutionLayer, uint8_t, int8_t>;
 
 template <typename T>
 using NEGEMMConvolutionLayerQuantizedPerChannelFixture = ConvolutionValidationQuantizedPerChannelFixture<Tensor, Accessor, NEConvolutionLayer, T, int8_t>;
@@ -1225,6 +1363,37 @@ TEST_SUITE(Quantized)
 /// separate quantization info for each input and the output tensor.
 /// When we can also support dynamic quantization with the presence of activation, these two versions should be merged
 /// again, with the explicitly specified quantization info removed
+
+#ifdef __aarch64__
+TEST_SUITE(UpdateStaticQuantInfoAfterConfigure)
+TEST_SUITE(QASYMM8_SIGNED)
+FIXTURE_DATA_TEST_CASE(RunSmall, NEGEMMConvolutionLayerForUpdatedStaticQuantInfoAfterConfigureFixture<int8_t>, framework::DatasetMode::ALL, combine(combine(combine(combine(combine(datasets::SmallConvolutionLayerDataset(),
+                                                                                                                      framework::dataset::make("ReshapeWeights", { true })),
+                                                                                                                      framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
+                                                                                                                      framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC })),
+                                                                                                                      framework::dataset::make("QuantizationInfoIfActivationEnabled", { QuantizationInfo(0.01f, -10) })),
+                                                                                                                      QuantizedActivationFunctionsDataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_qasymm8);
+}
+TEST_SUITE_END() // QASYMM8_SIGNED
+
+TEST_SUITE(QASYMM8)
+FIXTURE_DATA_TEST_CASE(RunSmall, NEGEMMConvolutionLayerForUpdatedStaticQuantInfoAfterConfigureFixture<uint8_t>, framework::DatasetMode::ALL, combine(combine(combine(combine(combine(datasets::SmallConvolutionLayerDataset(),
+                                                                                                                       framework::dataset::make("ReshapeWeights", { true })),
+                                                                                                                       framework::dataset::make("DataType", DataType::QASYMM8)),
+                                                                                                                       framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC })),
+                                                                                                                       framework::dataset::make("QuantizationInfoIfActivationEnabled", { QuantizationInfo(2.f / 255.f, 10) })),
+                                                                                                                       QuantizedActivationFunctionsDataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_qasymm8);
+}
+TEST_SUITE_END() // QASYMM8
+TEST_SUITE_END() // UpdateStaticQuantInfoAfterConfigure
+#endif // __aarch64__
+
 TEST_SUITE(QASYMM8)
 FIXTURE_DATA_TEST_CASE(RunSmall, NEGEMMConvolutionLayerQuantizedFixture<uint8_t>, framework::DatasetMode::ALL, combine(combine(combine(combine(combine(datasets::SmallConvolutionLayerDataset(),
                                                                                                                        framework::dataset::make("ReshapeWeights", { true })),
@@ -1285,6 +1454,50 @@ FIXTURE_DATA_TEST_CASE(RunMixedDataLayout, NEGEMMConvolutionLayerQuantizedFixtur
 }
 TEST_SUITE_END() // QASYMM8_SIGNED
 
+TEST_SUITE(QASYMM8_MIXED)
+FIXTURE_DATA_TEST_CASE(
+    RunSmall,
+    NEGEMMConvolutionLayerQuantizedMixedSignFixture,
+    framework::DatasetMode::ALL,
+    combine(combine(combine(combine(combine(combine(combine(datasets::SmallConvolutionLayerDataset(),
+                                                            framework::dataset::make("ReshapeWeights", {true})),
+                                                    framework::dataset::make("DataType", DataType::QASYMM8)),
+                                            framework::dataset::make("WeightsDataType", DataType::QASYMM8_SIGNED)),
+                                    framework::dataset::make("DataLayout", {DataLayout::NCHW, DataLayout::NHWC})),
+                            framework::dataset::make("QuantizationInfoIfActivationEnabled",
+{QuantizationInfo(2.f / 255.f, 10)})),
+framework::dataset::make("WeightQuantizationInfoIfActivationEnabled",
+{QuantizationInfo(2.f / 255.f, 10)})),
+QuantizedActivationFunctionsDataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_qasymm8);
+}
+FIXTURE_DATA_TEST_CASE(
+    RunMixedDataLayout,
+    NEGEMMConvolutionLayerQuantizedMixedSignFixture,
+    framework::DatasetMode::ALL,
+    combine(
+        framework::dataset::make("Input", TensorShape(23U, 27U, 5U)),
+        framework::dataset::make("Weights", TensorShape(3U, 3U, 5U, 2U)),
+        framework::dataset::make("Bias", TensorShape(2U)),
+        framework::dataset::make("Output", TensorShape(11U, 25U, 2U)),
+        framework::dataset::make("PadStrideInfo", PadStrideInfo(2, 1, 0, 0)),
+        framework::dataset::make("Dilation", Size2D(1, 1)),
+        framework::dataset::make("ReshapeWeights", {true}),
+        framework::dataset::make("DataType", DataType::QASYMM8),
+        framework::dataset::make("WeightsDataType", DataType::QASYMM8_SIGNED),
+        framework::dataset::make("DataLayout", {DataLayout::NCHW, DataLayout::NHWC}),
+        framework::dataset::make("QuantizationInfoIfActivationEnabled", {QuantizationInfo(2.f / 255.f, 10)}),
+        framework::dataset::make("WeightQuantizationInfoIfActivationEnabled", {QuantizationInfo(2.f / 255.f, 10)}),
+        QuantizedActivationFunctionsDataset)
+    )
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_qasymm8);
+}
+TEST_SUITE_END() // QASYMM8_MIXED
+
 TEST_SUITE(QSYMM8_PER_CHANNEL)
 FIXTURE_DATA_TEST_CASE(RunSmall, NEGEMMConvolutionLayerQuantizedPerChannelFixture<uint8_t>, framework::DatasetMode::ALL,
                        combine(combine(combine(combine(combine(combine(datasets::SmallConvolutionLayerDataset(),
@@ -1310,6 +1523,27 @@ FIXTURE_DATA_TEST_CASE(RunSmallSigned, NEGEMMConvolutionLayerQuantizedPerChannel
     // Validate output
     validate(Accessor(_target), _reference, tolerance_qasymm8);
 }
+
+FIXTURE_DATA_TEST_CASE(MemoryStressLargeChannels, NEGEMMConvolutionLayerQuantizedPerChannelFixture<int8_t>,
+    framework::DatasetMode::ALL,
+        combine(
+            make("In", TensorShape(1U)),
+            make("Weights", TensorShape(1U, 1U, 1U, 17000U)),
+            make("Biases", TensorShape(17000U)),
+            make("Out", TensorShape(1U, 1U, 17000U)),
+            make("Info", PadStrideInfo(1, 1, 0, 0)),
+            make("Dilation", Size2D(1, 1)),
+            make("ReshapeWeights", { true }),
+            make("DataType", { DataType::QASYMM8_SIGNED }),
+            make("DataLayout", { DataLayout::NHWC }),
+            make("QuantizationInfo", QuantizationInfo(0.5f, 10)),
+            make("ActivationInfo", ActivationLayerInfo()),
+            make("WeightsDataType", { DataType::QSYMM8_PER_CHANNEL })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_qasymm8);
+}
+
 TEST_SUITE_END() // QSYMM8_PER_CHANNEL
 TEST_SUITE_END() // Quantized
 
@@ -1368,7 +1602,7 @@ TEST_CASE(MemoryInjection, framework::DatasetMode::ALL)
     auto result_1 = run_conv();
     for(size_t i = 0; i < result_0.info()->tensor_shape().total_size(); ++i)
     {
-        ARM_COMPUTE_EXPECT(((float *)result_0.buffer())[i] == ((float *)result_1.buffer())[i], framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(reinterpret_cast<float *>(result_0.buffer())[i] == reinterpret_cast<float *>(result_1.buffer())[i], framework::LogLevel::ERRORS);
     }
 }
 
@@ -1408,7 +1642,7 @@ TEST_CASE(MultipleExecutionWithConfigure, framework::DatasetMode::ALL)
     auto result_1 = run_conv();
     for(size_t i = 0; i < result_0.info()->tensor_shape().total_size(); ++i)
     {
-        ARM_COMPUTE_EXPECT(((float *)result_0.buffer())[i] == ((float *)result_1.buffer())[i], framework::LogLevel::ERRORS);
+        ARM_COMPUTE_EXPECT(reinterpret_cast<float *>(result_0.buffer())[i] == reinterpret_cast<float *>(result_1.buffer())[i], framework::LogLevel::ERRORS);
     }
 }
 

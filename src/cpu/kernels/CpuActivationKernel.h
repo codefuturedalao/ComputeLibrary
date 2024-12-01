@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Arm Limited.
+ * Copyright (c) 2017-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,13 +21,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_CPU_ACTIVATION_KERNEL_H
-#define ARM_COMPUTE_CPU_ACTIVATION_KERNEL_H
+#ifndef ACL_SRC_CPU_KERNELS_CPUACTIVATIONKERNEL_H
+#define ACL_SRC_CPU_KERNELS_CPUACTIVATIONKERNEL_H
 
 #include "arm_compute/function_info/ActivationLayerInfo.h"
 
 #include "src/core/common/Macros.h"
+#include "src/core/helpers/LUTManager.h"
 #include "src/cpu/ICpuKernel.h"
+#include "src/cpu/kernels/activation/heuristics/CpuActivationKernelHeuristics.h"
 
 namespace arm_compute
 {
@@ -36,11 +38,10 @@ namespace cpu
 namespace kernels
 {
 /** Interface for the activation kernel */
-class CpuActivationKernel : public ICpuKernel<CpuActivationKernel>
+class CpuActivationKernel : public ICPPKernel
 {
 private:
-    using ActivationKernelPtr =
-        std::add_pointer<void(const ITensor *, ITensor *, const ActivationLayerInfo &, const Window &)>::type;
+    using ActivationKernelPtr = heuristics::CpuActivationKernelHeuristics::KernelPtr;
 
 public:
     CpuActivationKernel() = default;
@@ -82,25 +83,15 @@ public:
      */
     size_t get_split_dimension_hint() const
     {
-        return _split_dimension;
+        return _heuristics.scheduler_hint().split_dimension();
     }
 
-    struct ActivationKernel
-    {
-        const char                                *name;
-        const ActivationDataTypeISASelectorDataPtr is_selected;
-        ActivationKernelPtr                        ukernel;
-    };
-
-    static const std::vector<ActivationKernel> &get_available_kernels();
-
 private:
-    ActivationLayerInfo _act_info{};
-    ActivationKernelPtr _run_method{nullptr};
-    size_t              _split_dimension{Window::DimY};
-    std::string         _name{};
+    ActivationLayerInfo                       _act_info{};
+    std::string                               _name{};
+    heuristics::CpuActivationKernelHeuristics _heuristics{};
 };
 } // namespace kernels
 } // namespace cpu
 } // namespace arm_compute
-#endif /* ARM_COMPUTE_CPU_ACTIVATION_KERNEL_H */
+#endif // ACL_SRC_CPU_KERNELS_CPUACTIVATIONKERNEL_H

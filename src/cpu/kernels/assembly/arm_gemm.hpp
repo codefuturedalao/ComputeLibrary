@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2022 Arm Limited.
+ * Copyright (c) 2018-2022, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,6 +21,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
+#ifndef ACL_SRC_CPU_KERNELS_ASSEMBLY_ARM_GEMM_HPP
+#define ACL_SRC_CPU_KERNELS_ASSEMBLY_ARM_GEMM_HPP
+
 #pragma once
 
 #include "arm_gemm_local.hpp"
@@ -151,6 +155,7 @@ public:
     int               _maxthreads;
     bool              _fixed_format;
     bool              _fast_mode;
+    bool              _accumulate;
     const GemmConfig *_cfg;
 
     GemmArgs(const CPUInfo    *ci,
@@ -165,6 +170,7 @@ public:
              const int         maxthreads,
              bool              fixed_format = false,
              bool              fast_mode    = false,
+             bool              accumulate   = false,
              const GemmConfig *cfg          = nullptr)
         : _ci(ci),
           _Msize(M),
@@ -178,6 +184,7 @@ public:
           _maxthreads(maxthreads),
           _fixed_format(fixed_format),
           _fast_mode(fast_mode),
+          _accumulate(accumulate),
           _cfg(cfg)
     {
     }
@@ -253,12 +260,25 @@ public:
     }
 };
 
+struct DequantizeFloat
+{
+public:
+    float scale = 0;
+
+    DequantizeFloat() = default;
+
+    // Constructor
+    DequantizeFloat(const float scale) : scale(scale)
+    {
+    }
+};
+
 struct Nothing
 {
 };
 
-template <typename Top, typename Tret>
-using UniqueGemmCommon = std::unique_ptr<GemmCommon<Top, Tret>>;
+template <typename Tlop, typename Trop, typename Tret>
+using UniqueGemmCommon = std::unique_ptr<GemmCommon<Tlop, Trop, Tret>>;
 
 /* Low level API calls.
  * These are implemented as 'GemmArgs' versions, or with the arguments explicitly listed. */
@@ -268,13 +288,15 @@ using UniqueGemmCommon = std::unique_ptr<GemmCommon<Top, Tret>>;
 template <typename Top, typename Tret, class OutputStage = Nothing>
 KernelDescription get_gemm_method(const GemmArgs &args, const OutputStage & = {});
 
-template <typename Top, typename Tret, class OutputStage = Nothing>
-UniqueGemmCommon<Top, Tret> gemm(const GemmArgs &args, const OutputStage & = {});
+template <typename Tlop, typename Trop, typename Tret, class OutputStage = Nothing>
+UniqueGemmCommon<Tlop, Trop, Tret> gemm(const GemmArgs &args, const OutputStage & = {});
 
-template <typename Top, typename Tret, class OutputStage = Nothing>
+template <typename Tlop, typename Trop, typename Tret, class OutputStage = Nothing>
 std::vector<KernelDescription> get_compatible_kernels(const GemmArgs &args, const OutputStage & = {});
 
-template <typename Top, typename Tret, class OutputStage = Nothing>
+template <typename Tlop, typename Trop, typename Tret, class OutputStage = Nothing>
 bool has_opt_gemm(WeightFormat &weight_format, const GemmArgs &args, const OutputStage & = {});
 
 } // namespace arm_gemm
+
+#endif // ACL_SRC_CPU_KERNELS_ASSEMBLY_ARM_GEMM_HPP

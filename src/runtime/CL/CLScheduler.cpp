@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2023 Arm Limited.
+ * Copyright (c) 2016-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -105,7 +105,9 @@ CLScheduler::CLScheduler()
       _backend_type(CLBackendType::Native),
       _job_chaining_enabled(true),
       _job_chaining_size(1),
-      _job_chaining_count(0)
+      _job_chaining_count(0),
+      _enqueue_count(0),
+      _flush_count(0)
 {
 }
 
@@ -195,18 +197,20 @@ void CLScheduler::enqueue_common(ICLKernel &kernel, ITensorPack &tensors, bool f
 
     // Run kernel
     inject_memory ? kernel.run_op(tensors, kernel.window(), _queue) : kernel.run(kernel.window(), _queue);
-    if (_job_chaining_enabled)
-    {
-        ++_job_chaining_count;
-    }
 
     flush_queue(flush);
 }
 
 void CLScheduler::flush_queue(bool flush)
 {
-    if (_job_chaining_enabled)
+    _enqueue_count++;
+    _flush_count += flush;
+    const float flush_ratio = _flush_count / (float)_enqueue_count;
+
+    if (_enqueue_count > 100 && flush_ratio > 0.5f && _job_chaining_enabled)
     {
+        ++_job_chaining_count;
+
         if (_job_chaining_count >= _job_chaining_size)
         {
             _job_chaining_count = 0;
@@ -225,6 +229,7 @@ void CLScheduler::flush_queue(bool flush)
     }
     else if (flush)
     {
+        _job_chaining_count = 0;
         _queue.flush();
     }
 }

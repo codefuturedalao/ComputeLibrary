@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021 Arm Limited.
+ * Copyright (c) 2017-2021, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,7 +23,7 @@
  */
 #pragma once
 
-#if defined(__aarch64__) && (defined(FP16_KERNELS) || defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC))
+#if defined(__aarch64__) && (defined(FP16_KERNELS) || defined(ARM_COMPUTE_ENABLE_FP16))
 
 #include "../performance_parameters.hpp"
 #include "../std_transforms_fixed.hpp"
@@ -41,7 +41,8 @@ void a64_hgemm_asimd_8x24_x1(const __fp16 *, const __fp16 *, __fp16 *, int, int,
 // the constructor to pick a kernel implementation).
 class cls_a64_hgemm_8x24 {
 public:
-    typedef __fp16 operand_type;
+    typedef __fp16 lhs_operand_type;
+    typedef __fp16 rhs_operand_type;
     typedef __fp16 result_type;
 
     typedef void (*kern_type)(const __fp16 *, const __fp16 *, __fp16 *, int, int, int);
@@ -60,7 +61,7 @@ public:
     }
 
     // Use the standard fixed size transforms.
-    StdTransformsFixed<operand_type, result_type, 8, 24> transforms = {};
+    StdTransformsFixed<lhs_operand_type, rhs_operand_type, result_type, 8, 24> transforms = {};
 
     template<typename T>
     static PerformanceParameters get_performance_parameters(const CPUInfo *ci) {
@@ -89,4 +90,4 @@ public:
 
 } // namespace arm_gemm
 
-#endif // __aarch64__ && (FP16_KERNELS || __ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
+#endif // __aarch64__ && (FP16_KERNELS || ARM_COMPUTE_ENABLE_FP16)

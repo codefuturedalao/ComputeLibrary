@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Arm Limited.
+ * Copyright (c) 2017-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -49,6 +49,7 @@
 #include "arm_compute/function_info/FullyConnectedLayerInfo.h"
 #include "arm_compute/function_info/GEMMInfo.h"
 #include "arm_compute/function_info/MatMulInfo.h"
+#include "arm_compute/function_info/ScatterInfo.h"
 #include "arm_compute/runtime/CL/CLTunerTypes.h"
 #include "arm_compute/runtime/CL/CLTypes.h"
 #include "arm_compute/runtime/common/LSTMParams.h"
@@ -2230,6 +2231,9 @@ inline ::std::ostream &operator<<(::std::ostream &os, const GPUTarget &gpu_targe
         case GPUTarget::VALHALL:
             os << "VALHALL";
             break;
+        case GPUTarget::FIFTHGEN:
+            os << "FIFTHGEN";
+            break;
         case GPUTarget::T600:
             os << "T600";
             break;
@@ -2298,6 +2302,12 @@ inline ::std::ostream &operator<<(::std::ostream &os, const GPUTarget &gpu_targe
             break;
         case GPUTarget::G615:
             os << "G615";
+            break;
+        case GPUTarget::G720:
+            os << "G720";
+            break;
+        case GPUTarget::G620:
+            os << "G620";
             break;
         default:
             ARM_COMPUTE_ERROR("NOT_SUPPORTED!");
@@ -3321,7 +3331,7 @@ inline ::std::ostream &operator<<(::std::ostream &os, const experimental::dynami
 {
     os << "Settings="
        << "["
-       << "FPMixedPrecision=" << settings.mixed_precision() << "]";
+       << "UseInfAsLimit=" << settings.use_inf_as_limit() << "]";
     return os;
 }
 
@@ -3592,7 +3602,7 @@ inline ::std::ostream &operator<<(::std::ostream &os, const arm_compute::CpuMatM
 {
     os << "CpuMatMulSettings="
        << "["
-       << "fast_math=" << settings.fast_math() << "]";
+       << "fast_math=" << settings.fast_math() << ",fixed_format=" << settings.fixed_format() << "]";
 
     return os;
 }
@@ -3607,6 +3617,88 @@ inline std::string to_string(const arm_compute::CpuMatMulSettings &settings)
     std::stringstream str;
     str << settings;
     return str.str();
+}
+
+/** Formatted output of the scatter function type.
+ *
+ * @param[out] os       Output stream.
+ * @param[in]  function arm_compute::ScatterFunction type to output.
+ *
+ * @return Modified output stream.
+ */
+inline ::std::ostream &operator<<(::std::ostream &os, const ScatterFunction &function)
+{
+    switch (function)
+    {
+        case ScatterFunction::Update:
+            os << "UPDATE";
+            break;
+        case ScatterFunction::Add:
+            os << "ADD";
+            break;
+        case ScatterFunction::Sub:
+            os << "SUB";
+            break;
+        case ScatterFunction::Max:
+            os << "MAX";
+            break;
+        case ScatterFunction::Min:
+            os << "MIN";
+            break;
+        default:
+            ARM_COMPUTE_ERROR("NOT_SUPPORTED!");
+    }
+    return os;
+}
+/** Formatted output of the arm_compute::ScatterFunction type.
+ *
+ * @param[in] func arm_compute::ScatterFunction type to output.
+ *
+ * @return Formatted string.
+ */
+inline std::string to_string(const arm_compute::ScatterFunction &func)
+{
+    std::stringstream str;
+    str << func;
+    return str.str();
+}
+/** Formatted output of the arm_compute::ScatterInfo type.
+ *
+ * @param[out] os   Output stream.
+ * @param[in]  info arm_compute::ScatterInfo  type to output.
+ *
+ * @return Modified output stream.
+ */
+inline ::std::ostream &operator<<(::std::ostream &os, const arm_compute::ScatterInfo &info)
+{
+    os << "ScatterInfo="
+       << "["
+       << "Function=" << info.func << ", "
+       << "InitialiseZero=" << info.zero_initialization << "] ";
+    return os;
+}
+/** Formatted output of the arm_compute::ScatterInfo type.
+ *
+ * @param[in] info arm_compute::ScatterInfo type to output.
+ *
+ * @return Formatted string.
+ */
+inline std::string to_string(const arm_compute::ScatterInfo &info)
+{
+    std::stringstream str;
+    str << info;
+    return str.str();
+}
+
+/** Formatted output of the bool data type.
+ *
+ * @param[in] info bool type to output.
+ *
+ * @return Formatted string
+ */
+inline std::string to_string(const bool &info)
+{
+    return info ? "true" : "false";
 }
 
 } // namespace arm_compute

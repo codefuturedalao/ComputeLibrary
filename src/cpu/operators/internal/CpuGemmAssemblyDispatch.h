@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2023 Arm Limited.
+ * Copyright (c) 2018-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -28,6 +28,7 @@
 
 #include "src/core/common/Macros.h"
 #include "src/cpu/ICpuOperator.h"
+#include "src/cpu/kernels/assembly/arm_gemm.hpp"
 
 namespace arm_compute
 {
@@ -57,6 +58,7 @@ struct AsmGemmInfo
     bool                      fixed_format{false};
     arm_compute::WeightFormat weight_format{arm_compute::WeightFormat::UNSPECIFIED};
     bool                      reshape_b_only_on_first_run{true};
+    bool                      accumulate{false};
     /** Whether we want to perform an additional transpose of b before passing it to gemm or pretranspose_B_array
      * @note This transpose b operation is also considered a form of "reshape" or "transform", so should be counted for
      *       by the reshape_b_only_on_first_run flag
@@ -80,12 +82,17 @@ public:
     class IFallback
     {
     public:
-        virtual void                             run(ITensorPack &tensors)     = 0;
-        virtual void                             prepare(ITensorPack &tensors) = 0;
-        virtual experimental::MemoryRequirements workspace() const             = 0;
-        virtual bool                             is_configured() const         = 0;
-        virtual bool                             isVarWeightsKernel() const    = 0;
-        virtual ~IFallback()                                                   = default;
+        virtual void                             run(ITensorPack &tensors)                  = 0;
+        virtual void                             prepare(ITensorPack &tensors)              = 0;
+        virtual experimental::MemoryRequirements workspace() const                          = 0;
+        virtual bool                             is_configured() const                      = 0;
+        virtual bool                             isVarWeightsKernel() const                 = 0;
+        virtual void                             update_quantization_parameters(const GEMMLowpOutputStageInfo &,
+                                                                                const QuantizationInfo &,
+                                                                                const QuantizationInfo &,
+                                                                                const bool,
+                                                                                const bool) = 0;
+        virtual ~IFallback()                                                                = default;
     };
 
 public:
@@ -183,6 +190,12 @@ public:
     {
         return _arm_gemm && _arm_gemm->isVarWeightsKernel();
     }
+
+    void update_quantization_parameters(const GEMMLowpOutputStageInfo &output_info,
+                                        const QuantizationInfo        &a,
+                                        const QuantizationInfo        &b,
+                                        const bool                     is_prepared,
+                                        const bool                     negated_offsets);
 
     // Inherited methods overridden:
     void                             prepare(ITensorPack &tensors) override;

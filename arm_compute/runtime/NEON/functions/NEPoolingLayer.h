@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021 Arm Limited.
+ * Copyright (c) 2017-2021, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,13 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_NEPOOLINGLAYER_H
-#define ARM_COMPUTE_NEPOOLINGLAYER_H
+#ifndef ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEPOOLINGLAYER_H
+#define ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEPOOLINGLAYER_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/IMemoryManager.h"
 #include "arm_compute/runtime/MemoryGroup.h"
+#include "arm_compute/runtime/MemoryManagerOnDemand.h"
 
 #include <memory>
 
@@ -39,13 +40,16 @@ class ITensorInfo;
 
 /** Basic function to simulate a pooling layer with the specified pooling operation. This function calls the following kernels:
  *
- * -# @ref cpu::CpuPool2d
+ * -# cpu::CpuPool2d
  */
 class NEPoolingLayer : public IFunction
 {
 public:
     /** Constructor */
-    NEPoolingLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    NEPoolingLayer(std::shared_ptr<IMemoryManager> memory_manager);
+    NEPoolingLayer() : NEPoolingLayer(MemoryManagerOnDemand::make_default())
+    {
+    }
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEPoolingLayer(const NEPoolingLayer &) = delete;
     /** Prevent instances of this class from being copied (As this class contains pointers) */
@@ -104,4 +108,4 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute
-#endif /* ARM_COMPUTE_NEPOOLINGLAYER_H */
+#endif // ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEPOOLINGLAYER_H

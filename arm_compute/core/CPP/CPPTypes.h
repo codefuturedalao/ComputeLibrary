@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2022 Arm Limited.
+ * Copyright (c) 2017-2022, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,11 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_CPP_TYPES_H
-#define ARM_COMPUTE_CPP_TYPES_H
+#ifndef ACL_ARM_COMPUTE_CORE_CPP_CPPTYPES_H
+#define ACL_ARM_COMPUTE_CORE_CPP_CPPTYPES_H
 
 #include "arm_compute/core/Error.h"
 
+#include <cstdint>
 #include <memory>
 
 namespace arm_compute
@@ -170,6 +171,22 @@ public:
      * @return Number of CPUs
      */
     unsigned int get_cpu_num() const;
+    /** Return the maximum number of CPUs present excluding the little cores
+     * in case of an Android device
+     *
+     * @return Number of CPUs excluding little
+     */
+    unsigned int get_cpu_num_excluding_little() const;
+    /** Return the vector length in bytes for sme2
+     *
+     * @return Vector length if sme2 is enabled, otherwise returns 0.
+     */
+    uint64_t get_sme2_vector_length_in_bytes() const;
+    /** Return the vector length in bits for sme2
+     *
+     * @return Vector length if sme2 is enabled, otherwise returns 0.
+     */
+    uint64_t get_sme2_vector_length_in_bits() const;
 
 private:
     struct Impl;
@@ -184,4 +201,4 @@ struct ThreadInfo
     const CPUInfo *cpu_info{nullptr};
 };
 } // namespace arm_compute
-#endif /* ARM_COMPUTE_CPP_TYPES_H */
+#endif // ACL_ARM_COMPUTE_CORE_CPP_CPPTYPES_H

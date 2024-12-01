@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023 Arm Limited.
+ * Copyright (c) 2022-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -53,39 +53,34 @@ void mean_stddev_normalization<float16_t, 8>(ITensor *input, ITensor *output, fl
             auto in_ptr  = reinterpret_cast<const float16_t *>(input_itr.ptr());
             auto out_ptr = reinterpret_cast<float16_t *>(output_itr.ptr());
 
-            float16x8_t sum_vec    = vdupq_n_f16(static_cast<float16_t>(0.0f));
+            float32x4x2_t sum_vec = {vdupq_n_f32(0.0f), vdupq_n_f32(0.0f)};
+
             float32x4_t sum_sq_vec = vdupq_n_f32(0.0f);
 
             for (; x <= (window_end_x - window_step_x); x += window_step_x)
             {
                 float16x8_t data = vld1q_f16(in_ptr + x);
-                sum_vec          = vaddq_f16(sum_vec, data);
                 float32x4_t dl   = vcvt_f32_f16(vget_low_f16(data));
                 float32x4_t dh   = vcvt_f32_f16(vget_high_f16(data));
+                sum_vec.val[0]   = vaddq_f32(sum_vec.val[0], dl);
+                sum_vec.val[1]   = vaddq_f32(sum_vec.val[1], dh);
                 sum_sq_vec       = vaddq_f32(sum_sq_vec, vmulq_f32(dl, dl));
                 sum_sq_vec       = vaddq_f32(sum_sq_vec, vmulq_f32(dh, dh));
             }
 
-            float16x4_t sum_carry_res = vpadd_f16(vget_high_f16(sum_vec), vget_low_f16(sum_vec));
-            sum_carry_res             = vpadd_f16(sum_carry_res, sum_carry_res);
-            sum_carry_res             = vpadd_f16(sum_carry_res, sum_carry_res);
-
-            float32x4_t sum_sq_carry_res = vpaddq_f32(sum_sq_vec, sum_sq_vec);
-            sum_sq_carry_res             = vpaddq_f32(sum_sq_carry_res, sum_sq_carry_res);
-
-            float16_t sum    = vget_lane_f16(sum_carry_res, 0);
-            float     sum_sq = vgetq_lane_f32(sum_sq_carry_res, 0);
+            float32x4_t sum_carry_res = vpaddq_f32(sum_vec.val[0], sum_vec.val[1]);
+            float       sum           = vaddvq_f32(sum_carry_res);
+            float       sum_sq        = vaddvq_f32(sum_sq_vec);
 
             // Compute left-over elements
             for (; x < window_end_x; ++x)
             {
-                float16_t data = *(in_ptr + x);
-                sum += data;
-                float fdata = static_cast<float>(data);
+                const float fdata = static_cast<float>(*(in_ptr + x));
+                sum += fdata;
                 sum_sq += fdata * fdata;
             }
 
-            float16_t mean       = sum / input->info()->dimension(0);
+            float16_t mean       = static_cast<float16_t>(sum / input->info()->dimension(0));
             float     var        = (sum_sq / input->info()->dimension(0)) - (mean * mean);
             float16_t stddev_inv = static_cast<float16_t>(1.f / sqrt(var + epsilon));
 

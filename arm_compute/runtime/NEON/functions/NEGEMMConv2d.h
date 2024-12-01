@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2021 Arm Limited.
+ * Copyright (c) 2020-2021, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,12 +21,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_NEGEMMCONV2D_H
-#define ARM_COMPUTE_NEGEMMCONV2D_H
+#ifndef ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEGEMMCONV2D_H
+#define ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEGEMMCONV2D_H
 
 #include "arm_compute/runtime/FunctionDescriptors.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/IMemoryManager.h"
+#include "arm_compute/runtime/MemoryManagerOnDemand.h"
 
 #include <memory>
 
@@ -40,7 +41,7 @@ class ITensorInfo;
  *
  * Supports only NHWC data layout
  *
- * -# @ref cpu::CpuGemmAssemblyDispatch
+ * -# cpu::CpuGemmAssemblyDispatch
  * -# @ref NEActivationLayer, in case activation cannot be fused in the assembly dispatch
  *
  * Weights are transformed from OHWI to HWIO format using the following kernels:
@@ -50,7 +51,10 @@ class NEGEMMConv2d : public IFunction
 {
 public:
     /** Constructor */
-    NEGEMMConv2d(const std::shared_ptr<IMemoryManager> &memory_manager = nullptr);
+    NEGEMMConv2d(const std::shared_ptr<IMemoryManager> &memory_manager);
+    NEGEMMConv2d() : NEGEMMConv2d(MemoryManagerOnDemand::make_default())
+    {
+    }
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEGEMMConv2d(const NEGEMMConv2d &) = delete;
     /** Default move constructor */
@@ -118,4 +122,4 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute
-#endif /* ARM_COMPUTE_NEGEMMCONV2D_H */
+#endif // ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEGEMMCONV2D_H

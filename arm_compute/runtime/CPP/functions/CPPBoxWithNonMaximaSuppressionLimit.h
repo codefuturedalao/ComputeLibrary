@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 Arm Limited.
+ * Copyright (c) 2018-2020, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,26 +21,30 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_CPPBOXWITHNONMAXIMASUPPRESSIONLIMIT_H
-#define ARM_COMPUTE_CPPBOXWITHNONMAXIMASUPPRESSIONLIMIT_H
+#ifndef ACL_ARM_COMPUTE_RUNTIME_CPP_FUNCTIONS_CPPBOXWITHNONMAXIMASUPPRESSIONLIMIT_H
+#define ACL_ARM_COMPUTE_RUNTIME_CPP_FUNCTIONS_CPPBOXWITHNONMAXIMASUPPRESSIONLIMIT_H
 
 #include "arm_compute/core/CPP/kernels/CPPBoxWithNonMaximaSuppressionLimitKernel.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/IMemoryManager.h"
 #include "arm_compute/runtime/MemoryGroup.h"
+#include "arm_compute/runtime/MemoryManagerOnDemand.h"
 #include "arm_compute/runtime/Tensor.h"
 
 namespace arm_compute
 {
 class ITensor;
 
-/** Basic function to run @ref CPPBoxWithNonMaximaSuppressionLimitKernel */
+/** Basic function to run CPPBoxWithNonMaximaSuppressionLimitKernel */
 class CPPBoxWithNonMaximaSuppressionLimit : public IFunction
 {
 public:
     /** Constructor */
-    CPPBoxWithNonMaximaSuppressionLimit(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    CPPBoxWithNonMaximaSuppressionLimit(std::shared_ptr<IMemoryManager> memory_manager);
+    CPPBoxWithNonMaximaSuppressionLimit() : CPPBoxWithNonMaximaSuppressionLimit(MemoryManagerOnDemand::make_default())
+    {
+    }
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     CPPBoxWithNonMaximaSuppressionLimit(const CPPBoxWithNonMaximaSuppressionLimit &) = delete;
     /** Prevent instances of this class from being copied (As this class contains pointers) */
@@ -128,4 +132,4 @@ private:
     bool _is_qasymm8;
 };
 } // namespace arm_compute
-#endif /* ARM_COMPUTE_CPPBOXWITHNONMAXIMASUPPRESSIONLIMIT_H */
+#endif // ACL_ARM_COMPUTE_RUNTIME_CPP_FUNCTIONS_CPPBOXWITHNONMAXIMASUPPRESSIONLIMIT_H

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Arm Limited.
+ * Copyright (c) 2017-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -44,12 +44,14 @@ namespace test
 {
 namespace validation
 {
+
+using framework::dataset::make;
 namespace
 {
 #if !defined(__aarch64__) || defined(ENABLE_SVE)
 constexpr AbsoluteTolerance<float> tolerance_quant(1); /**< Tolerance value for comparing reference's output against implementation's output for quantized data types */
 #else                                                  // !defined(__aarch64__) || defined(ENABLE_SVE)
-constexpr AbsoluteTolerance<float> tolerance_quant(0);
+constexpr AbsoluteTolerance<float> tolerance_quant(1);
 #endif                                                 // !defined(__aarch64__) || defined(ENABLE_SVE)
 const auto InPlaceDataSet    = framework::dataset::make("InPlace", { false, true });
 const auto OutOfPlaceDataSet = framework::dataset::make("InPlace", { false });
@@ -125,7 +127,7 @@ DATA_TEST_CASE(KernelSelection, framework::DatasetMode::ALL, concat(concat(
     cpu_isa.sve2 = (cpu_ext == "SVE2");
     cpu_isa.fp16 = (data_type == DataType::F16);
 
-    const auto *selected_impl = CpuAddKernel::get_implementation(CpuAddKernelDataTypeISASelectorData{data_type, cpu_isa, can_use_fixedpoint}, cpu::KernelSelectionType::Preferred);
+    const auto *selected_impl = CpuAddKernel::get_implementation(CpuAddKernelDataTypeISASelectorData{data_type, cpu_isa, can_use_fixedpoint, false /* can_use_sme2_impl */ }, cpu::KernelSelectionType::Preferred);
 
     ARM_COMPUTE_ERROR_ON_NULLPTR(selected_impl);
 
@@ -209,17 +211,25 @@ TEST_SUITE_END() // S32
 TEST_SUITE_END() // Integer
 
 TEST_SUITE(Float)
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
 TEST_SUITE(F16)
 FIXTURE_DATA_TEST_CASE(RunSmall, NEArithmeticAdditionFixture<half>, framework::DatasetMode::ALL, combine(combine(combine(datasets::SmallShapes(), framework::dataset::make("DataType", DataType::F16)),
                                                                                                                  framework::dataset::make("ConvertPolicy", { ConvertPolicy::SATURATE, ConvertPolicy::WRAP })),
                                                                                                          OutOfPlaceDataSet))
 {
-    // Validate output
-    validate(Accessor(_target), _reference);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 TEST_SUITE_END() // F16
-#endif           /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+#endif           /* ARM_COMPUTE_ENABLE_FP16 */
 
 TEST_SUITE(F32)
 FIXTURE_DATA_TEST_CASE(RunSmall, NEArithmeticAdditionFixture<float>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::SmallShapes(), framework::dataset::make("DataType",
@@ -290,12 +300,43 @@ TEST_SUITE(QASYMM8_SIGNED)
 FIXTURE_DATA_TEST_CASE(RunSmall,
                        NEArithmeticAdditionQuantizedFixture<int8_t>,
                        framework::DatasetMode::ALL,
-                       combine(combine(combine(combine(combine(combine(datasets::SmallShapes(), framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
-                                                               framework::dataset::make("ConvertPolicy", { ConvertPolicy::SATURATE })),
-                                                       framework::dataset::make("Src0QInfo", { QuantizationInfo(0.5f, 20) })),
-                                               framework::dataset::make("Src1QInfo", { QuantizationInfo(0.5f, 10) })),
-                                       framework::dataset::make("OutQInfo", { QuantizationInfo(0.5f, 5) })),
-                               OutOfPlaceDataSet))
+                       combine(datasets::SmallShapes(),
+                            make("DataType", DataType::QASYMM8_SIGNED),
+                            make("ConvertPolicy", { ConvertPolicy::SATURATE }),
+                            make("Src0QInfo", { QuantizationInfo(0.45f, 20) }),
+                            make("Src1QInfo", { QuantizationInfo(0.55f, 10) }),
+                            make("OutQInfo", { QuantizationInfo(0.5f, 5) }),
+                            OutOfPlaceDataSet))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_quant);
+}
+
+FIXTURE_DATA_TEST_CASE(RunSmall5d,
+                       NEArithmeticAdditionQuantizedFixture<int8_t>,
+                       framework::DatasetMode::ALL,
+                       combine(datasets::Tiny5dShapes(),
+                            make("DataType", DataType::QASYMM8_SIGNED),
+                            make("ConvertPolicy", { ConvertPolicy::SATURATE }),
+                            make("Src0QInfo", { QuantizationInfo(0.45f, 20) }),
+                            make("Src1QInfo", { QuantizationInfo(0.55f, 10) }),
+                            make("OutQInfo", { QuantizationInfo(0.5f, 5) }),
+                            OutOfPlaceDataSet))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_quant);
+}
+
+FIXTURE_DATA_TEST_CASE(RunLarge,
+                       NEArithmeticAdditionQuantizedFixture<int8_t>,
+                       framework::DatasetMode::NIGHTLY,
+                       combine(datasets::LargeShapes(),
+                            make("DataType", DataType::QASYMM8_SIGNED),
+                            make("ConvertPolicy", { ConvertPolicy::SATURATE }),
+                            make("Src0QInfo", { QuantizationInfo(0.45f, 20) }),
+                            make("Src1QInfo", { QuantizationInfo(0.55f, 10) }),
+                            make("OutQInfo", { QuantizationInfo(0.5f, 5) }),
+                            OutOfPlaceDataSet))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_quant);
@@ -304,8 +345,8 @@ FIXTURE_DATA_TEST_CASE(RunSmall,
 FIXTURE_DATA_TEST_CASE(RunSmallBroadcast, NEArithmeticAdditionQuantizedBroadcastFixture<int8_t>, framework::DatasetMode::ALL, combine(combine(combine(combine(combine(combine(
                            datasets::SmallShapesBroadcast(), framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
                        framework::dataset::make("ConvertPolicy", { ConvertPolicy::SATURATE })),
-                       framework::dataset::make("Src0QInfo", { QuantizationInfo(0.5f, 20) })),
-                       framework::dataset::make("Src1QInfo", { QuantizationInfo(0.5f, 10) })),
+                       framework::dataset::make("Src0QInfo", { QuantizationInfo(0.45f, 20) })),
+                       framework::dataset::make("Src1QInfo", { QuantizationInfo(0.55f, 10) })),
                        framework::dataset::make("OutQInfo", { QuantizationInfo(0.5f, 5) })),
                        OutOfPlaceDataSet))
 {

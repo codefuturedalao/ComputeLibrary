@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021 Arm Limited.
+ * Copyright (c) 2019-2021, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,12 +21,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_NEFFT1D_H
-#define ARM_COMPUTE_NEFFT1D_H
+#ifndef ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEFFT1D_H
+#define ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEFFT1D_H
 
 #include "arm_compute/runtime/FunctionDescriptors.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/MemoryGroup.h"
+#include "arm_compute/runtime/MemoryManagerOnDemand.h"
 #include "arm_compute/runtime/Tensor.h"
 
 #include <memory>
@@ -41,15 +42,18 @@ class NEFFTScaleKernel;
 
 /** Basic function to execute one dimensional FFT. This function calls the following kernels:
  *
- * -# @ref NEFFTDigitReverseKernel Performs digit reverse
- * -# @ref NEFFTRadixStageKernel   A list of FFT kernels depending on the radix decomposition
- * -# @ref NEFFTScaleKernel        Performs output scaling in case of in inverse FFT
+ * -# NEFFTDigitReverseKernel Performs digit reverse
+ * -# NEFFTRadixStageKernel   A list of FFT kernels depending on the radix decomposition
+ * -# NEFFTScaleKernel        Performs output scaling in case of in inverse FFT
  */
 class NEFFT1D : public IFunction
 {
 public:
     /** Default Constructor */
-    NEFFT1D(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    NEFFT1D(std::shared_ptr<IMemoryManager> memory_manager);
+    NEFFT1D() : NEFFT1D(MemoryManagerOnDemand::make_default())
+    {
+    }
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEFFT1D(const NEFFT1D &) = delete;
     /** Prevent instances of this class from being copied (As this class contains pointers) */
@@ -101,4 +105,4 @@ protected:
     bool                                                _run_scale;
 };
 } // namespace arm_compute
-#endif /*ARM_COMPUTE_NEFFT1D_H */
+#endif // ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEFFT1D_H

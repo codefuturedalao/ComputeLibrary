@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021, 2023 Arm Limited.
+ * Copyright (c) 2018-2021, 2023-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_TEST_WINOGRAD_LAYER_FIXTURE
-#define ARM_COMPUTE_TEST_WINOGRAD_LAYER_FIXTURE
+#ifndef ACL_TESTS_VALIDATION_FIXTURES_WINOGRADCONVOLUTIONLAYERFIXTURE_H
+#define ACL_TESTS_VALIDATION_FIXTURES_WINOGRADCONVOLUTIONLAYERFIXTURE_H
 
 #include "arm_compute/core/TensorShape.h"
 #include "arm_compute/core/Types.h"
@@ -59,6 +59,12 @@ public:
                DataType data_type, ActivationLayerInfo act_info, const DataLayout &data_layout)
 
     {
+        if(std::is_same<TensorType, Tensor>::value &&  // Cpu
+            data_type == DataType::F16 && !CPUInfo::get().has_fp16())
+        {
+            return;
+        }
+
         ARM_COMPUTE_UNUSED(dilation);
         _mixed_layout = mixed_layout;
         _target       = compute_target(input_shape, weights_shape, bias_shape, output_shape, info, data_type, act_info, data_layout);
@@ -229,7 +235,7 @@ protected:
         SimpleTensor<T1> filter_transform_out = reference::winograd_filter_transform<T1>(weights_t1, filter_transform_shape, winograd_info);
         SimpleTensor<T1> batched_gemm         = reference::gemm<T1>(input_transform_out, filter_transform_out, dummy_c, 1.0f, 0.0f);
         SimpleTensor<T1> conv_out             = reference::winograd_output_transform<T1>(batched_gemm, bias_t1, output_transform_shape, winograd_info);
-        SimpleTensor<T>  conv_out_t(std::move(copy_tensor<T, T1>(conv_out)));
+        SimpleTensor<T>  conv_out_t(copy_tensor<T, T1>(conv_out));
         return (act_info.enabled()) ? reference::activation_layer<T>(conv_out_t, act_info) : conv_out_t;
     }
 
@@ -244,6 +250,12 @@ class WinogradInputTransformValidationFixture : public framework::Fixture
 public:
     void setup(TensorShape input_shape, WinogradInfo winograd_info, DataLayout data_layout, DataType data_type)
     {
+        if(std::is_same<TensorType, Tensor>::value &&  // Cpu
+            data_type == DataType::F16 && !CPUInfo::get().has_fp16())
+        {
+            return;
+        }
+
         TensorShape output_shape = compute_winograd_input_transform_shape(TensorInfo(input_shape, 1, data_type), winograd_info);
         _mixed_layout            = mixed_layout;
         _target                  = compute_target(input_shape, output_shape, winograd_info, data_layout, data_type);
@@ -355,6 +367,12 @@ class WinogradFilterTransformValidationFixture : public framework::Fixture
 public:
     void setup(TensorShape input_shape, Size2D output_tile, DataLayout data_layout, DataType data_type)
     {
+        if(std::is_same<TensorType, Tensor>::value &&  // Cpu
+            data_type == DataType::F16 && !CPUInfo::get().has_fp16())
+        {
+            return;
+        }
+
         WinogradInfo winograd_info(output_tile, Size2D(input_shape[0], input_shape[1]), Size2D() /* Not needed */, PadStrideInfo() /* Not needed */, DataLayout::NCHW /* Not needed */);
         TensorShape  output_shape = compute_winograd_filter_transform_shape(TensorInfo(input_shape, 1, data_type), winograd_info);
 
@@ -469,6 +487,12 @@ class WinogradOutputTransformValidationFixture : public framework::Fixture
 public:
     void setup(TensorShape input_shape, WinogradInfo winograd_info, DataType data_type, ActivationLayerInfo act_info = ActivationLayerInfo())
     {
+        if(std::is_same<TensorType, Tensor>::value &&  // Cpu
+            data_type == DataType::F16 && !CPUInfo::get().has_fp16())
+        {
+            return;
+        }
+
         _target    = compute_target(input_shape, winograd_info, data_type, act_info);
         _reference = compute_reference(input_shape, winograd_info, data_type, act_info);
     }
@@ -584,4 +608,4 @@ protected:
 } // namespace validation
 } // namespace test
 } // namespace arm_compute
-#endif /* ARM_COMPUTE_TEST_WINOGRAD_LAYER_FIXTURE */
+#endif // ACL_TESTS_VALIDATION_FIXTURES_WINOGRADCONVOLUTIONLAYERFIXTURE_H

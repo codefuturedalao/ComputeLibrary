@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2023 Arm Limited.
+ * Copyright (c) 2021-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -53,6 +53,7 @@ cpu::AsmGemmInfo init_assembly_metadata(const GEMMInfo &info)
     asm_info.fast_mode               = info.fast_math();
     asm_info.fixed_format            = info.fixed_format();
     asm_info.weight_format           = info.weight_format();
+    asm_info.accumulate              = info.accumulate();
     asm_info.transpose_b =
         info.pretranspose_B(); // The "pretranspose_B" flag here is not the same as the pretranspose_B_array method. The flag here signals to pretranspose_B_array method if we want to perform additional transpose on B before the pretranspose_B_array method
 
@@ -174,8 +175,8 @@ void CpuGemm::configure(const ITensorInfo *a,
             // Configure rhs transpose1xw kernel
             _transpose1xW_b_kernel = std::make_unique<cpu::kernels::CpuGemmTranspose1xWKernel>();
             _transpose1xW_b_kernel->configure(b_to_use, &_tmp_b);
-            _aux_mem[Transposed1xWRHS] =
-                MemoryInfo(offset_int_vec(Transposed1xWRHS), MemoryLifetime::Persistent, _tmp_b.total_size());
+            const auto lifetime = _reshape_b_only_on_first_run ? MemoryLifetime::Persistent : MemoryLifetime::Temporary;
+            _aux_mem[Transposed1xWRHS] = MemoryInfo(offset_int_vec(Transposed1xWRHS), lifetime, _tmp_b.total_size());
 
             // Use a and b here instead of _tmp_a and _tmp_b because CpuGemmMatrixMultiplyKernel requires the original m,n,k in case of interleaved a and transposed1xw b
             const int m = a->dimension(1);
@@ -220,6 +221,16 @@ Status CpuGemm::validate(const ITensorInfo *a,
                          const GEMMInfo    &gemm_info)
 {
     ARM_COMPUTE_UNUSED(alpha);
+    // When using accumulation(in place summation), for now, the only supported values for alpha and beta are 1 respectively 0.
+    // Do the appropriate checks before proceeding.
+    if (gemm_info.accumulate())
+    {
+        ARM_COMPUTE_RETURN_ERROR_ON_MSG(alpha != 1, "Accumulation is not supported when alpha is different from 1");
+        ARM_COMPUTE_RETURN_ERROR_ON_MSG(
+            (beta != 0 && c != nullptr),
+            "Accumulation is not supported when beta is different from 0 with a non-null bias matrix c");
+    }
+
     const bool is_c_bias    = beta == 1 && c != nullptr;
     const bool run_addition = c != nullptr && beta != 0 && beta != 1;
     // Check if we should use the pretransposed_b or original b

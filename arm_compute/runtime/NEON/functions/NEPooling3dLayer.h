@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Arm Limited.
+ * Copyright (c) 2022, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,11 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_NEPOOLING3DLAYER_H
-#define ARM_COMPUTE_NEPOOLING3DLAYER_H
+#ifndef ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEPOOLING3DLAYER_H
+#define ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEPOOLING3DLAYER_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/IFunction.h"
+#include "arm_compute/runtime/MemoryManagerOnDemand.h"
 
 #include <memory>
 
@@ -37,13 +38,16 @@ class ITensorInfo;
 class IMemoryManager;
 /** Basic function to simulate a pooling 3d layer with the specified pooling operation. This function calls the following kernels:
  *
- * -# @ref cpu::CpuPool3d
+ * -# cpu::CpuPool3d
  */
 class NEPooling3dLayer : public IFunction
 {
 public:
     /** Constructor */
-    NEPooling3dLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    NEPooling3dLayer(std::shared_ptr<IMemoryManager> memory_manager);
+    NEPooling3dLayer() : NEPooling3dLayer(MemoryManagerOnDemand::make_default())
+    {
+    }
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEPooling3dLayer(const NEPooling3dLayer &) = delete;
     /** Prevent instances of this class from being copied (As this class contains pointers) */
@@ -93,4 +97,4 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute
-#endif /* ARM_COMPUTE_NEPOOLING3DLAYER_H */
+#endif // ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEPOOLING3DLAYER_H

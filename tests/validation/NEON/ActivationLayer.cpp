@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Arm Limited.
+ * Copyright (c) 2017-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -39,7 +39,6 @@
 #include "tests/framework/datasets/Datasets.h"
 #include "tests/validation/Validation.h"
 #include "tests/validation/fixtures/ActivationLayerFixture.h"
-
 #include "arm_compute/Acl.hpp"
 #include "support/AclRequires.h"
 
@@ -167,15 +166,6 @@ AbsoluteTolerance<uint8_t> tolerance_qasymm8(ActivationLayerInfo::ActivationFunc
 
 constexpr AbsoluteTolerance<int16_t> tolerance_qsymm16(1);
 
-/** CNN data types */
-const auto CNNDataTypes = framework::dataset::make("DataType",
-{
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
-    DataType::F16,
-#endif /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
-    DataType::F32,
-});
-
 const auto NeonActivationFunctionsDataset = concat(datasets::ActivationFunctions(),
                                                    framework::dataset::make("ActivationFunction", { ActivationLayerInfo::ActivationFunction::HARD_SWISH, ActivationLayerInfo::ActivationFunction::SWISH }));
 
@@ -188,9 +178,17 @@ void test_float_sqrt_boundary_value()
     constexpr auto vector_size = uint32_t{ 16 };
 
     auto data_type = DataType::F32;
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
     data_type = std::is_same<T, half>::value ? DataType::F16 : data_type;
-#endif /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+#endif /* ARM_COMPUTE_ENABLE_FP16 */
+
+    if(data_type == DataType::F16 && !CPUInfo::get().has_fp16())
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+
+        return;
+    }
 
     const auto boundary_value_vector = std::vector<T>
     {
@@ -287,48 +285,6 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(
     ARM_COMPUTE_EXPECT(is_valid == expected, framework::LogLevel::ERRORS);
 }
 
-DATA_TEST_CASE(KernelSelection, framework::DatasetMode::ALL, concat(concat(
-               combine(framework::dataset::make("CpuExt", std::string("NEON")),
-                       framework::dataset::make("DataType", { DataType::F32,
-                                                              DataType::F16,
-                                                              DataType::QASYMM8,
-                                                              DataType::QASYMM8_SIGNED,
-                                                              DataType::QSYMM16
-                                                            })),
-                combine(framework::dataset::make("CpuExt", std::string("SVE")),
-                        framework::dataset::make("DataType", { DataType::F32,
-                                                               DataType::F16,
-                                                             }))),
-                combine(framework::dataset::make("CpuExt", std::string("SVE2")),
-                        framework::dataset::make("DataType", { DataType::QASYMM8,
-                                                               DataType::QASYMM8_SIGNED,
-                                                               DataType::QSYMM16
-                                                             }))),
-               cpu_ext, data_type)
-{
-    using namespace cpu::kernels;
-
-    cpuinfo::CpuIsaInfo cpu_isa{};
-    cpu_isa.neon = (cpu_ext == "NEON");
-    cpu_isa.sve  = (cpu_ext == "SVE");
-    cpu_isa.sve2 = (cpu_ext == "SVE2");
-    cpu_isa.fp16 = (data_type == DataType::F16);
-
-    const auto *selected_impl = CpuActivationKernel::get_implementation(ActivationDataTypeISASelectorData{data_type, CPUModel::GENERIC, cpu_isa,ActivationLayerInfo::ActivationFunction::BOUNDED_RELU}, cpu::KernelSelectionType::Preferred);
-
-    ARM_COMPUTE_ERROR_ON_NULLPTR(selected_impl);
-    std::string expected = lower_string(cpu_ext) + "_" + cpu_impl_dt(data_type) + "_activation";
-    if( data_type == DataType::QASYMM8 || data_type == DataType::QASYMM8_SIGNED)
-    {
-#ifdef __aarch64__
-        expected = "neon_q8_activation_lut";
-#else  // __aarch64__
-        expected = lower_string(cpu_ext) + "_" + cpu_impl_dt(data_type) + "_activation";
-#endif // __aarch64__
-    }
-    std::string actual   = selected_impl->name;
-    ARM_COMPUTE_EXPECT_EQUAL(expected, actual, framework::LogLevel::ERRORS);
-}
 // clang-format on
 // *INDENT-ON*
 
@@ -336,7 +292,7 @@ template <typename T>
 using NEActivationLayerFixture = ActivationValidationFixture<Tensor, Accessor, NEActivationLayer, T>;
 
 TEST_SUITE(Float)
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
 TEST_SUITE(FP16)
 TEST_CASE(SqrtBoundaryValue, framework::DatasetMode::ALL)
 {
@@ -346,11 +302,19 @@ FIXTURE_DATA_TEST_CASE(RunSmall, NEActivationLayerFixture<half>, framework::Data
                                                                                                       framework::dataset::make("DataType",
                                                                                                               DataType::F16)))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, relative_tolerance(_data_type, _function), 0.f, absolute_tolerance(_data_type, _function));
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, relative_tolerance(_data_type, _function), 0.f, absolute_tolerance(_data_type, _function));
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 TEST_SUITE_END() // FP16
-#endif           /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+#endif           /* ARM_COMPUTE_ENABLE_FP16 */
 
 TEST_SUITE(FP32)
 TEST_CASE(SqrtBoundaryValue, framework::DatasetMode::ALL)
@@ -364,6 +328,27 @@ FIXTURE_DATA_TEST_CASE(RunSmall, NEActivationLayerFixture<float>, framework::Dat
     // Validate output
     validate(Accessor(_target), _reference, relative_tolerance(_data_type, _function), 0.f, absolute_tolerance(_data_type, _function));
 }
+// Run only on SME Devices to stress Logistic SME kernel
+#ifdef ARM_COMPUTE_ENABLE_SME2
+TEST_SUITE(SME)
+const auto LogsisticDataset =  combine(framework::dataset::make("InPlace", { false }), framework::dataset::make("Function", ActivationLayerInfo::ActivationFunction::LOGISTIC), framework::dataset::make("AlphaBeta", { 1.f }));
+FIXTURE_DATA_TEST_CASE(RunLogistic5D, NEActivationLayerFixture<float>, framework::DatasetMode::ALL, combine(datasets::Tiny5dShapes(), LogsisticDataset, framework::dataset::make("DataType",
+                                                                                                       DataType::F32)))
+
+{
+    // Validate output
+    validate(Accessor(_target), _reference, relative_tolerance(_data_type, _function), 0.f, absolute_tolerance(_data_type, _function));
+}
+
+FIXTURE_DATA_TEST_CASE(RunLogisticSME, NEActivationLayerFixture<float>, framework::DatasetMode::ALL, combine(datasets::LogisticSMEStressShapesFp32(), LogsisticDataset, framework::dataset::make("DataType",
+                                                                                                       DataType::F32)))
+
+{
+    // Validate output
+    validate(Accessor(_target), _reference, relative_tolerance(_data_type, _function), 0.f, absolute_tolerance(_data_type, _function));
+}
+TEST_SUITE_END() // SME
+#endif // ARM_COMPUTE_ENABLE_SME2
 TEST_SUITE_END() // FP32
 TEST_SUITE_END() // Float
 

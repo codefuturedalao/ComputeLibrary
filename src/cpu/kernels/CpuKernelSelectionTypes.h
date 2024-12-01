@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2023 Arm Limited.
+ * Copyright (c) 2021-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_CPU_KERNEL_SELECTION_TYPES_H
-#define ARM_COMPUTE_CPU_KERNEL_SELECTION_TYPES_H
+#ifndef ACL_SRC_CPU_KERNELS_CPUKERNELSELECTIONTYPES_H
+#define ACL_SRC_CPU_KERNELS_CPUKERNELSELECTIONTYPES_H
 
 #include "arm_compute/core/Types.h"
 
@@ -90,6 +90,7 @@ struct CpuAddKernelDataTypeISASelectorData
     DataType            dt;
     cpuinfo::CpuIsaInfo isa;
     bool                can_use_fixedpoint;
+    bool                can_use_sme2_impl;
 };
 
 struct ScaleKernelDataTypeISASelectorData
@@ -97,6 +98,22 @@ struct ScaleKernelDataTypeISASelectorData
     DataType            dt;
     cpuinfo::CpuIsaInfo isa;
     InterpolationPolicy interpolation_policy;
+};
+
+struct SoftmaxKernelDataTypeISASelectorData
+{
+    DataType            dt;
+    cpuinfo::CpuIsaInfo isa;
+    bool                is_log;
+    int                 axis;
+    uint64_t            sme2_vector_length;
+};
+
+struct ScatterKernelDataTypeISASelectorData
+{
+    DataType            dt;
+    cpuinfo::CpuIsaInfo isa;
+    unsigned long       sme2_vector_length;
 };
 
 // Selector pointer types
@@ -113,9 +130,12 @@ using CpuAddKernelDataTypeISASelectorDataPtr =
     std::add_pointer<bool(const CpuAddKernelDataTypeISASelectorData &data)>::type;
 using ScaleKernelDataTypeISASelectorDataPtr =
     std::add_pointer<bool(const ScaleKernelDataTypeISASelectorData &data)>::type;
-
+using SoftmaxKernelDataTypeISASelectorDataPtr =
+    std::add_pointer<bool(const SoftmaxKernelDataTypeISASelectorData &data)>::type;
+using ScatterKernelDataTypeISASelectorDataPtr =
+    std::add_pointer<bool(const ScatterKernelDataTypeISASelectorData &data)>::type;
 } // namespace kernels
 } // namespace cpu
 } // namespace arm_compute
 
-#endif // ARM_COMPUTE_CPU_KERNEL_SELECTION_TYPES_H
+#endif // ACL_SRC_CPU_KERNELS_CPUKERNELSELECTIONTYPES_H

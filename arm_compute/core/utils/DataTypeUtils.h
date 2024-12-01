@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2023 Arm Limited.
+ * Copyright (c) 2016-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_CORE_UTILS_DATATYPEUTILS_H
-#define ARM_COMPUTE_CORE_UTILS_DATATYPEUTILS_H
+#ifndef ACL_ARM_COMPUTE_CORE_UTILS_DATATYPEUTILS_H
+#define ACL_ARM_COMPUTE_CORE_UTILS_DATATYPEUTILS_H
 
 #include "arm_compute/core/PixelValue.h"
 #include "arm_compute/core/Types.h"
@@ -69,6 +69,35 @@ inline size_t data_size_from_type(DataType data_type)
     }
 }
 
+/** Get underlying data type
+ *
+ * @param[in] data_type Input data type
+ *
+ * @return the underlying data type
+ */
+inline constexpr DataType get_underlying_data_type(DataType data_type)
+{
+    switch (data_type)
+    {
+        case DataType::U8:
+        case DataType::QASYMM8:
+            return DataType::U8;
+        case DataType::S8:
+        case DataType::QSYMM8:
+        case DataType::QASYMM8_SIGNED:
+        case DataType::QSYMM8_PER_CHANNEL:
+            return DataType::S8;
+        case DataType::U16:
+        case DataType::QASYMM16:
+            return DataType::U16;
+        case DataType::S16:
+        case DataType::QSYMM16:
+            return DataType::S16;
+        default:
+            return data_type;
+    }
+}
+
 /** The size in bytes of the data type
  *
  * @param[in] dt Input data type
@@ -97,9 +126,12 @@ inline size_t element_size_from_data_type(DataType dt)
         case DataType::S32:
         case DataType::F32:
             return 4;
+        case DataType::F64:
         case DataType::U64:
         case DataType::S64:
             return 8;
+        case DataType::SIZET:
+            return sizeof(size_t); // portable
         default:
             ARM_COMPUTE_ERROR("Undefined element size for given data type");
             return 0;
@@ -373,6 +405,24 @@ inline bool is_data_type_quantized_asymmetric_signed(DataType dt)
     }
 }
 
+/** Check if a given data type is of 8-bit asymmetric quantized signed type
+ *
+ * @param[in] dt Input data type.
+ *
+ * @return True if data type is of 8-bit asymmetric quantized signed type, else false.
+ */
+inline bool is_data_type_quantized_asymmetric_char(DataType dt)
+{
+    switch (dt)
+    {
+        case DataType::QASYMM8_SIGNED:
+        case DataType::QASYMM8:
+            return true;
+        default:
+            return false;
+    }
+}
+
 /** Check if a given data type is of symmetric quantized type
  *
  * @param[in] dt Input data type.
@@ -528,4 +578,4 @@ inline std::string cpu_impl_dt(const DataType &data_type)
 }
 
 } // namespace arm_compute
-#endif /*ARM_COMPUTE_CORE_UTILS_DATATYPEUTILS_H */
+#endif // ACL_ARM_COMPUTE_CORE_UTILS_DATATYPEUTILS_H

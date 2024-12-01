@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021 Arm Limited.
+ * Copyright (c) 2017-2021, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -25,7 +25,7 @@
 
 #ifdef __aarch64__
 
-#include "../std_transforms_fixed.hpp"
+#include "../std_transforms_fixed_trB.hpp"
 #include "../performance_parameters.hpp"
 
 #include "../bfloat.hpp"
@@ -49,7 +49,8 @@ void a64_sgemm_asimd_8x12_x1(const float *, const float *, float *, int, int, in
 // structure.
 class cls_a64_sgemm_8x12 {
 public:
-    typedef float operand_type;
+    typedef float lhs_operand_type;
+    typedef float rhs_operand_type;
     typedef float result_type;
 
     typedef void (*kern_type)(const float *, const float *, float *, int, int, int);
@@ -68,7 +69,7 @@ public:
     }
 
     // Use the standard fixed size transforms.
-    StdTransformsFixed<operand_type, result_type, 8, 12> transforms = {};
+    StdTransformsFixedTRB<lhs_operand_type, rhs_operand_type, result_type, 8, 12> transforms = {};
 
     template<typename T>
     static PerformanceParameters get_performance_parameters(const CPUInfo *ci) {

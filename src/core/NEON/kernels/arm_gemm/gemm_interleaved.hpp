@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Arm Limited.
+ * Copyright (c) 2017-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -30,7 +30,6 @@
 #include "arm_gemm.hpp"
 #include "bfloat.hpp"
 #include "convolver.hpp"
-#include "kernel_weight_format.hpp"
 #include "kernel_traits.hpp"
 #include "kernel_weight_format.hpp"
 #include "mergeresults.hpp"
@@ -64,12 +63,12 @@ namespace {
 template<bool MergeStep, bool FixedFormat, typename OutputStage>
 class kernel_and_merge {
 public:
-    template<typename strategy, typename To, typename Tr, typename Tri, typename Tab>
+    template<typename strategy, typename Tlo, typename Tro, typename Tr, typename Tri, typename Tab>
     static void run (
 #ifdef CYCLE_PROFILING
         profiler &prof,
 #endif
-        strategy &strat, const To *a_ptr, const To *b_panel, size_t b_stride, Tri *c_panel,
+        strategy &strat, const Tlo *a_ptr, const Tro *b_panel, size_t b_stride, Tri *c_panel,
         Tr *c_ptr, int ldc, int kern_k, unsigned int m_0,
         unsigned int m_max, unsigned int n_0, unsigned int n_max, const Tr *biasptr,
         const Activation &act, bool accumulate, const OutputStage &os, const int32_t *col_bias,
@@ -78,12 +77,12 @@ public:
 
 // Run a kernel and call the separate merge step
 template<>
-template<typename strategy, typename To, typename Tr, typename Tri, typename Tab>
+template<typename strategy, typename Tlo, typename Tro, typename Tr, typename Tri, typename Tab>
 void kernel_and_merge<true, false, Nothing>::run(
 #ifdef CYCLE_PROFILING
         profiler &prof,
 #endif
-        strategy &strat, const To *a_ptr, const To *b_panel, size_t, Tri *c_panel,
+        strategy &strat, const Tlo *a_ptr, const Tro *b_panel, size_t, Tri *c_panel,
         Tr *c_ptr, int ldc, int kern_k, unsigned int m_0,
         unsigned int m_max, unsigned int n_0, unsigned int n_max, const Tr *biasptr,
         const Activation &act, bool accumulate, const Nothing &, const int32_t *, Tab *)
@@ -108,12 +107,12 @@ void kernel_and_merge<true, false, Nothing>::run(
 
 // Run a fixed-format kernel and call the separate merge step
 template<>
-template<typename strategy, typename To, typename Tr, typename Tri, typename Tab>
+template<typename strategy, typename Tlo, typename Tro, typename Tr, typename Tri, typename Tab>
 void kernel_and_merge<true, true, Nothing>::run(
 #ifdef CYCLE_PROFILING
         profiler &prof,
 #endif
-        strategy &strat, const To *a_ptr, const To *b_panel, size_t b_stride, Tri *c_panel,
+        strategy &strat, const Tlo *a_ptr, const Tro *b_panel, size_t b_stride, Tri *c_panel,
         Tr *c_ptr, int ldc, int kern_k, unsigned int m_0,
         unsigned int m_max, unsigned int n_0, unsigned int n_max, const Tr *biasptr,
         const Activation &act, bool accumulate, const Nothing &, const int32_t *, Tab *)
@@ -138,12 +137,12 @@ void kernel_and_merge<true, true, Nothing>::run(
 
 // Run a kernel with integrated merge
 template<>
-template<typename strategy, typename To, typename Tr, typename Tri, typename Tab>
+template<typename strategy, typename Tlo, typename Tro, typename Tr, typename Tri, typename Tab>
 void kernel_and_merge<false, false, Nothing>::run(
 #ifdef CYCLE_PROFILING
         profiler &prof,
 #endif
-        strategy &strat, const To *a_ptr, const To *b_panel, size_t, Tri *,
+        strategy &strat, const Tlo *a_ptr, const Tro *b_panel, size_t, Tri *,
         Tr *c_ptr, int ldc, int kern_k, unsigned int m_0, unsigned int m_max,
         unsigned int n_0, unsigned int n_max, const Tr *biasptr,
         const Activation &act, bool accumulate, const Nothing &, const int32_t *,
@@ -177,12 +176,12 @@ void kernel_and_merge<false, false, Nothing>::run(
 
 // Run a kernel with integrated merge, quantizing
 template<>
-template<typename strategy, typename To, typename Tr, typename Tri, typename Tab>
+template<typename strategy, typename Tlo, typename Tro, typename Tr, typename Tri, typename Tab>
 void kernel_and_merge<false, false, Requantize32>::run(
 #ifdef CYCLE_PROFILING
         profiler &prof,
 #endif
-        strategy &strat, const To *a_ptr, const To *b_panel, size_t, Tri *,
+        strategy &strat, const Tlo *a_ptr, const Tro *b_panel, size_t, Tri *,
         Tr *c_ptr, int ldc, int kern_k, unsigned int m_0, unsigned int m_max,
         unsigned int n_0, unsigned int n_max, const Tr *,
         const Activation &, bool accumulate, const Requantize32 &qp, const int32_t *col_bias,
@@ -192,10 +191,19 @@ void kernel_and_merge<false, false, Requantize32>::run(
     auto p=prof.ScopedProfiler(PROFILE_KERNEL, (m_max - m_0) * (n_max - n_0) * kern_k);
 #endif
 
+    // Offset C pointer in a similar way to non-quantized case above.
+    Tri *offset_c_ptr;
+
+    if (c_ptr == nullptr) {
+        offset_c_ptr = nullptr;
+    } else {
+        offset_c_ptr = c_ptr + m_0 * ldc + n_0;
+    }
+
     strat.kernel(// A and B pointers are just the packed panels.
                  a_ptr, b_panel,
                  // Provide relevant part of output array and row stride.
-                 c_ptr + m_0 * ldc + n_0, ldc,
+                 offset_c_ptr, ldc,
                  // M, N, K sizes
                  m_max-m_0, n_max - n_0, kern_k,
                  // Bias, activation, accumulation.  Need to offset the bias as needed.
@@ -204,12 +212,12 @@ void kernel_and_merge<false, false, Requantize32>::run(
 
 // Run a kernel and call the separate quantize step
 template<>
-template<typename strategy, typename To, typename Tr, typename Tri, typename Tab>
+template<typename strategy, typename Tlo, typename Tro, typename Tr, typename Tri, typename Tab>
 void kernel_and_merge<true, false, Requantize32>::run(
 #ifdef CYCLE_PROFILING
         profiler &prof,
 #endif
-        strategy &strat, const To *a_ptr, const To *b_panel, size_t, Tri *c_panel,
+        strategy &strat, const Tlo *a_ptr, const Tro *b_panel, size_t, Tri *c_panel,
         Tr *c_ptr, int ldc, int kern_k, unsigned int m_0,
         unsigned int m_max, unsigned int n_0, unsigned int n_max, const Tr *,
         const Activation &, bool, const Requantize32 &qp, const int32_t *col_bias,
@@ -248,6 +256,84 @@ void kernel_and_merge<true, false, Requantize32>::run(
     }
 }
 
+// Run a kernel with integrated merge, dequantizing to FP32
+template<>
+template<typename strategy, typename Tlo, typename Tro, typename Tr, typename Tri, typename Tab>
+void kernel_and_merge<false, false, DequantizeFloat>::run(
+#ifdef CYCLE_PROFILING
+        profiler &prof,
+#endif
+        strategy &strat, const Tlo *a_ptr, const Tro *b_panel, size_t, Tri *,
+        Tr *c_ptr, int ldc, int kern_k, unsigned int m_0, unsigned int m_max,
+        unsigned int n_0, unsigned int n_max, const Tr *bias,
+        const Activation &act, bool accumulate, const DequantizeFloat &dq, const int32_t *col_bias,
+        Tab *acc_buff)
+{
+#ifdef CYCLE_PROFILING
+    auto p=prof.ScopedProfiler(PROFILE_KERNEL, (m_max - m_0) * (n_max - n_0) * kern_k);
+#endif
+
+    const int32_t *offset_col_bias = nullptr;
+    const Tr *offset_bias = nullptr;
+
+    if (col_bias) {
+        offset_col_bias = col_bias + n_0;
+    }
+
+    if (bias) {
+        offset_bias = bias + n_0;
+    }
+
+    strat.kernel(// A and B pointers are just the packed panels.
+                 a_ptr, b_panel,
+                 // Provide relevant part of output array and row stride.
+                 c_ptr ? (c_ptr + m_0 * ldc + n_0) : nullptr, ldc,
+                 // M, N, K sizes
+                 m_max-m_0, n_max - n_0, kern_k,
+                 // Bias, activation, accumulation.  Need to offset the bias as needed.
+                 offset_col_bias, dq, offset_bias, act, accumulate, acc_buff);
+}
+
+template<>
+template<typename strategy, typename Tlo, typename Tro, typename Tr, typename Tri, typename Tab>
+void kernel_and_merge<true, false, DequantizeFloat>::run(
+#ifdef CYCLE_PROFILING
+        profiler &prof,
+#endif
+        strategy &strat, const Tlo *a_ptr, const Tro *b_panel, size_t, Tri *c_panel,
+        Tr *c_ptr, int ldc, int kern_k, unsigned int m_0,
+        unsigned int m_max, unsigned int n_0, unsigned int n_max, const Tr *bias,
+        const Activation &act, bool accumulate, const DequantizeFloat &qp, const int32_t *,
+        Tab *)
+{
+    const int bblocks = iceildiv(n_max - n_0, strategy::out_width());
+
+    {
+#ifdef CYCLE_PROFILING
+        auto p=prof.ScopedProfiler(PROFILE_KERNEL, (strategy::out_height() * bblocks * strategy::out_width() * kern_k));
+#endif
+
+        strat.kernel(a_ptr, b_panel, c_panel, 1, bblocks, kern_k);
+    }
+
+    {
+#ifdef CYCLE_PROFILING
+        auto p=prof.ScopedProfiler(PROFILE_QUANTIZE, ((m_max-m_0) * bblocks * strategy::out_width() * sizeof(Tr)));
+#endif
+        auto out_area = strategy::out_width() * strategy::out_height();
+        for (int i=0; i<bblocks; i++) {
+            const unsigned int n_start = n_0 + (strategy::out_width() * i);
+            const unsigned int n_end = std::min(n_start + strategy::out_width(), n_max);
+
+            dequantize_block_32(qp, (n_end - n_start), (m_max - m_0),
+                            c_panel + (i * out_area), strategy::out_width(),
+                            c_ptr + m_0 * ldc + n_start, ldc,
+                            bias != nullptr ? bias + n_start : nullptr, accumulate, act);
+
+        }
+    }
+}
+
 // Integer GEMMs can be used in two contexts - "normal" where the full 32-bit output is required, or in
 // "requantizing" context where the output will be requantized.
 //
@@ -281,6 +367,12 @@ public:
     typedef int32_t type;
 };
 
+template<typename strategy>
+class accumulate_buffer_type<strategy, DequantizeFloat, false> {
+public:
+    typedef int32_t type;
+};
+
 template<typename strategy, typename OutputStage>
 class accumulate_buffer_type<strategy, OutputStage, true> {
 public:
@@ -303,21 +395,21 @@ struct get_stripe_width<strategy, true> {
 };
 
 // KernelWeightFormat is a similar story.
-template<typename strategy, bool FixedFormat, typename To>
+template<typename strategy, bool FixedFormat, typename Tro>
 struct get_kernel_weight_format {
     static KernelWeightFormat get() {
         return KernelWeightFormat::NON_FIXED;
     }
 };
 
-template<typename strategy, typename To>
-struct get_kernel_weight_format<strategy, true, To> {
+template<typename strategy, typename Tro>
+struct get_kernel_weight_format<strategy, true, Tro> {
     static KernelWeightFormat get() {
         KernelWeightFormat kwf = strategy::kernel_weight_format();
 
         // If we are using a BF16 kernel to do an FP32 problem (fast mode) then we need to set the BF16 flag on the
         // weight format.
-        if (std::is_same<To, float>::value && std::is_same<typename strategy::operand_type, bfloat16>::value) {
+        if (std::is_same<Tro, float>::value && std::is_same<typename strategy::rhs_operand_type, bfloat16>::value) {
             uint32_t kwf_i = static_cast<uint32_t>(kwf);
             kwf_i |= 0x10;
             kwf = static_cast<KernelWeightFormat>(kwf_i);
@@ -329,9 +421,10 @@ struct get_kernel_weight_format<strategy, true, To> {
 
 } // anonymous namespace
 
-template<typename strategy, typename To, typename Tr, typename OutputStage=Nothing, bool MergeStep=true, bool FixedFormat=false, bool ForceThreadColumns=false, bool ForceFloatAccumulate=false>
-class GemmInterleaved : public GemmCommon<To, Tr> {
-    typedef typename strategy::operand_type Toi;
+template<typename strategy, typename Tlo, typename Tro, typename Tr, typename OutputStage=Nothing, bool MergeStep=true, bool FixedFormat=false, bool ForceThreadColumns=false, bool ForceFloatAccumulate=false>
+class GemmInterleaved : public GemmCommon<Tlo, Tro, Tr> {
+    typedef typename strategy::lhs_operand_type Tloi;
+    typedef typename strategy::rhs_operand_type Troi;
     typedef typename strategy::result_type Tri;
     typedef typename accumulate_buffer_type<strategy, OutputStage, ForceFloatAccumulate>::type Tab;
 
@@ -351,6 +444,7 @@ class GemmInterleaved : public GemmCommon<To, Tr> {
     const bool _thread_columns;
 
     const Activation _act;
+    const bool _accumulate;
 
     const int _maxthreads;
     int _nthreads;
@@ -361,7 +455,7 @@ class GemmInterleaved : public GemmCommon<To, Tr> {
     unsigned int _Mround=0;
 
     /* Working space, pretransposed buffer, buffer manager */
-    const Toi *_B_transposed=nullptr;
+    const Troi *_B_transposed=nullptr;
     void *_working_space=nullptr;
 
     Tab *_accumulation_buffer=nullptr;
@@ -373,10 +467,10 @@ class GemmInterleaved : public GemmCommon<To, Tr> {
     int32_t *col_bias = nullptr;
 
     /* Indirect parameters.  _indirect_buf doubles as a flag to indicate that "indirect" transform should be used. */
-    const To * const * const * _indirect_buf = nullptr;
+    const Tlo * const * const * _indirect_buf = nullptr;
 
     /* Convolver - only set up for convolution problems, so also doubles as a flag. */
-    std::unique_ptr<convolver<To>>  _convolver = nullptr;
+    std::unique_ptr<convolver<Tlo>>  _convolver = nullptr;
 
     unsigned int get_col_sum_size() const {
         if (std::is_same<OutputStage, Requantize32>::value) {
@@ -391,7 +485,7 @@ class GemmInterleaved : public GemmCommon<To, Tr> {
     class blockwalker {
     private:
         /* Size loops, etc. based on our parent's configuration */
-        const GemmInterleaved<strategy, To, Tr, OutputStage, MergeStep, FixedFormat, ForceThreadColumns, ForceFloatAccumulate> &_parent;
+        const GemmInterleaved<strategy, Tlo, Tro, Tr, OutputStage, MergeStep, FixedFormat, ForceThreadColumns, ForceFloatAccumulate> &_parent;
 
         /* K, X and multi parameters for current iteration. */
         unsigned int _k0=0, _x0=0, _multi=0;
@@ -406,9 +500,9 @@ class GemmInterleaved : public GemmCommon<To, Tr> {
         bool _newmulti=true;
 
     public:
-        blockwalker(const GemmInterleaved<strategy, To, Tr, OutputStage, MergeStep, FixedFormat, ForceThreadColumns, ForceFloatAccumulate> &parent) : _parent(parent) { }
+        blockwalker(const GemmInterleaved<strategy, Tlo, Tro, Tr, OutputStage, MergeStep, FixedFormat, ForceThreadColumns, ForceFloatAccumulate> &parent) : _parent(parent) { }
 
-        blockwalker(const GemmInterleaved<strategy, To, Tr, OutputStage, MergeStep, FixedFormat, ForceThreadColumns, ForceFloatAccumulate> &parent,
+        blockwalker(const GemmInterleaved<strategy, Tlo, Tro, Tr, OutputStage, MergeStep, FixedFormat, ForceThreadColumns, ForceFloatAccumulate> &parent,
                     unsigned int x_start, unsigned int x_end) : _parent(parent), _x0 (_x_start), _x_start(x_start), _x_end(x_end) { }
 
         unsigned int xmax() {
@@ -462,7 +556,7 @@ class GemmInterleaved : public GemmCommon<To, Tr> {
         unsigned int k_depth = _k_block;
 
         if (std::is_same<OutputStage, Requantize32>::value) {
-            k_depth += sizeof(int32_t) / sizeof(Toi);
+            k_depth += sizeof(int32_t) / sizeof(Tloi);
         }
 
         return k_depth;
@@ -472,10 +566,10 @@ class GemmInterleaved : public GemmCommon<To, Tr> {
     size_t get_a_working_size() const {
         if (_thread_columns) {
             // For 2D threading: allocate a buffer of one block of rows per thread
-            return ROUND_UP(sizeof(Toi) * get_total_k_depth() * strategy::out_height() * _maxthreads);
+            return ROUND_UP(sizeof(Tloi) * get_total_k_depth() * strategy::out_height() * _maxthreads);
         } else {
             // For 1D threaded: one of these needed, regardless of thread count.  Divided according to window.
-            return ROUND_UP(sizeof(Toi) * get_total_k_depth() * _Mround * _nbatches);
+            return ROUND_UP(sizeof(Tloi) * get_total_k_depth() * _Mround * _nbatches);
         }
     }
 
@@ -580,15 +674,27 @@ class GemmInterleaved : public GemmCommon<To, Tr> {
             return roundup(args._cfg->inner_block_size, strategy::k_unroll());
         }
 
-        // K blocking not supported if we are requantizing.
-        if (std::is_same<OutputStage, Requantize32>::value) {
+        // K blocking not supported if we are requantizing with the merging
+        // kernels.
+        if (std::is_same<OutputStage, Requantize32>::value && MergeStep) {
             return get_ktotal(args);
         }
 
+        const unsigned int L1_size = args._ci->get_L1_cache_size();
+
         // Special blocking for SME
         if (is_sme<strategy>::value) {
-            // Don't bother to block below this size threshold, experimentally determined to be 320 for FP32
-            unsigned int scaling_threshold = 1280 / sizeof(Toi);
+            // Target 512 bytes for 64kB L1, or 1024 bytes for 128kB L1.
+            unsigned int target_bytes_per_block = L1_size / 128;
+
+            // Default cache size in gemm-linux is 32kB though - so make
+            // sure minimum is 512
+            if (target_bytes_per_block < 512) {
+                target_bytes_per_block = 512;
+            }
+
+            // Don't bother to block below this size threshold (1.25X target size)
+            unsigned int scaling_threshold = ((target_bytes_per_block * 5) / 4) / sizeof(Tloi);
 
             if (get_ktotal(args) <= scaling_threshold) {
                 return get_ktotal(args);
@@ -596,7 +702,7 @@ class GemmInterleaved : public GemmCommon<To, Tr> {
 
             // Once we are blocking, this (lower) threshold determines when we should use more blocks
             // NOTE: Could be that some factor-based solution would work better here.
-            unsigned int max_block_size = 1024 / sizeof(Toi);
+            unsigned int max_block_size = target_bytes_per_block / sizeof(Tloi);
 
             unsigned int num_k_blocks = iceildiv(get_ktotal(args), max_block_size);
 
@@ -605,12 +711,11 @@ class GemmInterleaved : public GemmCommon<To, Tr> {
             return k_block;
         }
 
-        const unsigned int L1_size = args._ci->get_L1_cache_size();
         unsigned int k_block;
 
         // k_block: Find out how much of the larger array can be loaded into half the cache.
         // This should account for associative caches.
-        k_block = (L1_size / 2) / (sizeof(Toi) * (std::max(strategy::out_width(), strategy::out_height())));
+        k_block = (L1_size / 2) / (sizeof(Tloi) * (std::max(strategy::out_width(), strategy::out_height())));
 
         // Needs to be (at least a single) multiple of the K unroll level.
         k_block /= strategy::k_unroll();
@@ -640,6 +745,17 @@ class GemmInterleaved : public GemmCommon<To, Tr> {
             return roundup(args._cfg->outer_block_size, strategy::out_width());
         }
 
+        // Special blocking for SME
+        if (is_sme<strategy>::value) {
+            // If total width is less than 4x kernel width, return the entire width.
+            if (args._Nsize < strategy::out_width()*4) {
+                return roundup(args._Nsize, strategy::out_width());
+            }
+
+            // Otherwise block to single kernel width.
+            return strategy::out_width();
+        }
+
         unsigned int x_block;
         const unsigned int L2_size = args._ci->get_L2_cache_size();
         const unsigned int k_block = get_k_block_size(args);
@@ -647,14 +763,14 @@ class GemmInterleaved : public GemmCommon<To, Tr> {
         // x_block: Work out how many rows (of length k_block) will fit in the L2
         // Don't allocate more than 90% of the L2 to allow for overheads, and subtract off the L1 contents.
         const unsigned int scaled_l2_size = (L2_size * 9) / 10;
-        const unsigned int k_block_area = k_block * sizeof(Toi) * (strategy::out_width() + strategy::out_height());
+        const unsigned int k_block_area = k_block * sizeof(Tloi) * (strategy::out_width() + strategy::out_height());
 
         // .. if the L1 contents is bigger than the L2, just return a minimal size block.
         if (k_block_area > scaled_l2_size) {
             return strategy::out_width();
         }
 
-        x_block = (scaled_l2_size - k_block_area) / (sizeof(Toi) * k_block);
+        x_block = (scaled_l2_size - k_block_area) / (sizeof(Tloi) * k_block);
 
         // Needs to be (at least a single) multiple of the kernel output width.
         x_block /= strategy::out_width();
@@ -681,7 +797,7 @@ public:
                       _Ksections(args._Ksections), _Ktotal(get_ktotal(args)),
                       _rounded_Ksize(roundup(_Ksize, strategy::k_unroll())),
                       _nbatches(args._nbatches), _nmulti(args._nmulti), _thread_columns(is_thread_columns(args)),
-                      _act(args._act), _maxthreads(args._maxthreads), _nthreads(args._maxthreads),
+                      _act(args._act), _accumulate(args._accumulate), _maxthreads(args._maxthreads), _nthreads(args._maxthreads),
                       _k_block(get_k_block_size(args)), _x_block(get_x_block_size(args)), _Mround(roundup(args._Msize, strategy::out_height())),
                       _os(os) { }
 
@@ -691,7 +807,7 @@ public:
                       _Ksections(args._Ksections), _Ktotal(get_ktotal(args)),
                       _rounded_Ksize(roundup(_Ksize, strategy::k_unroll())),
                       _nbatches(args._nbatches), _nmulti(args._nmulti), _thread_columns(is_thread_columns(args)),
-                      _act(args._act), _maxthreads(args._maxthreads), _nthreads(args._maxthreads),
+                      _act(args._act), _accumulate(args._accumulate),  _maxthreads(args._maxthreads), _nthreads(args._maxthreads),
                       _k_block(get_k_block_size(args)), _x_block(get_x_block_size(args)), _Mround(roundup(args._Msize, strategy::out_height())),
                       _os() { }
 
@@ -752,8 +868,8 @@ public:
             const auto end_x = std::min(work_range.get_position_end(1) * strategy::out_width(), _Nsize);
 
             Tri * const c_panel = reinterpret_cast<Tri *>(working_space_bytes + (threadid * get_c_working_size()));
-            Toi * const a_panel = reinterpret_cast<Toi *>(working_space_bytes + (_maxthreads * get_c_working_size()) +
-                                       (threadid * sizeof(Toi) * get_total_k_depth() * strategy::out_height()));
+            Tloi * const a_panel = reinterpret_cast<Tloi *>(working_space_bytes + (_maxthreads * get_c_working_size()) +
+                                       (threadid * sizeof(Tloi) * get_total_k_depth() * strategy::out_height()));
 
             for (unsigned int multi=0; multi<_nmulti; multi++) {
                 for (unsigned int k0=0; k0<_Ktotal; k0+=_k_block) {
@@ -764,11 +880,14 @@ public:
                     const bool first_pass = (k0==0);
                     const bool last_pass  = (kmax==_Ktotal);
 
+                    // Bias is passed for the first pass only, except for dequantizefloat nomerge cases where it's the last pass.
+                    const bool bias_pass = (std::is_same<OutputStage, DequantizeFloat>::value && !MergeStep) ? last_pass : first_pass;
+
                     // Figure out how many "K" the kernel will actually process.
                     unsigned int kern_k = roundup(kmax - k0, strategy::k_unroll());
 
-                    const Toi *b_ptr = FixedFormat ?
-                        reinterpret_cast<const Toi *>(this->_Bptr) + (multi * this->_B_multi_stride) +
+                    const Troi *b_ptr = FixedFormat ?
+                        reinterpret_cast<const Troi *>(this->_Bptr) + (multi * this->_B_multi_stride) +
                                                      ((start_x / get_stripe_width<strategy, FixedFormat>::get()) * this->_ldb) +
                                                      (k0 * get_stripe_width<strategy, FixedFormat>::get()) :
                         _B_transposed + (rounded_width * _Ktotal * multi) + (k0 * rounded_width) + (start_x * kern_k);
@@ -782,7 +901,7 @@ public:
                         // Set up transposed 'A' block
                         {
 #ifdef CYCLE_PROFILING
-                            auto p=prof.ScopedProfiler(PROFILE_PREPA, strategy::out_height() * (kmax-k0) * sizeof(Toi));
+                            auto p=prof.ScopedProfiler(PROFILE_PREPA, strategy::out_height() * (kmax-k0) * sizeof(Tloi));
 #endif
                             // See comment above on transform_type<> class: this extracts either 'transforms' or
                             // 'transforms_quantized' as appropriate.
@@ -822,9 +941,9 @@ public:
                             // K size, and M/N ranges
                             kern_k, start_row, end_row, start_x, end_x,
                             // Only do bias on the first pass
-                            ((first_pass && this->_bias) ? this->_bias + (multi * this->_bias_multi_stride) : nullptr),
+                            ((bias_pass && this->_bias) ? this->_bias + (multi * this->_bias_multi_stride) : nullptr),
                             // Only do activation on the last pass, and accumulation on any non-first pass.
-                            (last_pass ? _act : Activation()), !first_pass,
+                            (last_pass ? _act : Activation()), (!first_pass || _accumulate),
                             // Pass in quantization parameters for requantizing kernels (others will ignore)
                             _os, col_bias + (multi * _Nsize),
                             // Accumulation buffer
@@ -850,10 +969,10 @@ public:
             // (one per thread) first, followed by the (window-divided) A
             // buffer.
             // Set a_panel to the base of the A buffers - compute offsets into it based on M/batches later.
-            Toi * const a_panel = reinterpret_cast<Toi *>(working_space_bytes + (_maxthreads * get_c_working_size()));
+            Tloi * const a_panel = reinterpret_cast<Tloi *>(working_space_bytes + (_maxthreads * get_c_working_size()));
             Tri * const c_panel = reinterpret_cast<Tri *>(working_space_bytes + (threadid * get_c_working_size()));
 
-            const Toi *b_panel;
+            const Troi *b_panel;
             b_panel = _B_transposed;
 
             // newkblock() is always true on the first iteration, so these will be set properly on the first loop.
@@ -872,7 +991,7 @@ public:
             for (;!current.done();current.advance()) {
                 if (current.newkblock()) {
 #ifdef CYCLE_PROFILING
-                    auto p=prof.ScopedProfiler(PROFILE_PREPA, (end - start) * strategy::out_height() * (current.kmax()-current.k0()) * sizeof(Toi));
+                    auto p=prof.ScopedProfiler(PROFILE_PREPA, (end - start) * strategy::out_height() * (current.kmax()-current.k0()) * sizeof(Tloi));
 #endif
                     // See comment above on transform_type<> class: this extracts either 'transforms' or
                     // 'transforms_quantized' as appropriate.
@@ -908,7 +1027,7 @@ public:
                     // larger than the (rounded) K value.
 
                     if(std::is_same<OutputStage, Requantize32>::value) {
-                        a_panel_stride = kern_k + (sizeof(int32_t) / sizeof(Toi));
+                        a_panel_stride = kern_k + (sizeof(int32_t) / sizeof(Tloi));
                     } else {
                         a_panel_stride = kern_k;
                     }
@@ -916,7 +1035,7 @@ public:
 
                 // For FixedFormat cases, figure out the B pointer.  The loop below moves through batches and vertically through the output so this will be the same throughout.
                 if (FixedFormat) {
-                    b_panel = reinterpret_cast<const Toi *>(this->_Bptr) + (current.multi() * this->_B_multi_stride) +
+                    b_panel = reinterpret_cast<const Troi *>(this->_Bptr) + (current.multi() * this->_B_multi_stride) +
                                                                            ((current.x0() / get_stripe_width<strategy, FixedFormat>::get()) * this->_ldb) +
                                                                            (current.k0() * get_stripe_width<strategy, FixedFormat>::get());
                 }
@@ -926,7 +1045,7 @@ public:
                     unsigned int first_m = (batch == batch_0)   ? m_0   : 0;
                     unsigned int last_m  = (batch == batch_end) ? m_max : _Msize;
 
-                    const Toi *a_ptr = a_panel + (batch * _Mround + first_m) * get_total_k_depth();
+                    const Tloi *a_ptr = a_panel + (batch * _Mround + first_m) * get_total_k_depth();
 
                     if (first_m >= last_m)
                         continue;
@@ -949,6 +1068,9 @@ public:
                         const bool first_pass = (current.k0() == 0);
                         const bool last_pass  = (current.kmax() == _Ktotal);
 
+                        // Bias is passed for the first pass only, except for dequantizefloat nomerge cases where it's the last pass.
+                        const bool bias_pass = (std::is_same<OutputStage, DequantizeFloat>::value && !MergeStep) ? last_pass : first_pass;
+
                         // Pointer to appropriate part of result array.
                         Tr *result_ptr = this->_Cptr + (batch * this->_C_batch_stride) + (current.multi() * this->_C_multi_stride);
 
@@ -970,9 +1092,9 @@ public:
                             // K size, and M/N ranges
                             kern_k, y, ymax, current.x0(), current.xmax(),
                             // Only do bias on the first pass
-                            ((first_pass && this->_bias) ? this->_bias + (current.multi() * this->_bias_multi_stride) : nullptr),
+                            ((bias_pass && this->_bias) ? this->_bias + (current.multi() * this->_bias_multi_stride) : nullptr),
                             // Only do activation on the last pass, and accumulation on any non-first pass.
-                            (last_pass ? _act : Activation()), !first_pass,
+                            (last_pass ? _act : Activation()), (!first_pass || _accumulate),
                             // Pass in quantization parameters for requantizing kernels (others will ignore)
                             _os, col_bias + (current.multi() * _Nsize),
                             // Accumulation buffer
@@ -1045,7 +1167,7 @@ public:
 
         unsigned int x_size = roundup(_Nsize, strategy::out_width());
 
-        return (x_size * _Ktotal * _nmulti * sizeof(Toi)) + get_col_sum_size();
+        return (x_size * _Ktotal * _nmulti * sizeof(Troi)) + get_col_sum_size();
     }
 
     size_t get_B_pretranspose_window_size() const override {
@@ -1055,7 +1177,7 @@ public:
         return n_blocks * k_blocks * _nmulti;
     }
 
-    void requantize_bias(void *in_buffer, const To *B, const int ldb, const int B_multi_stride) override {
+    void requantize_bias(void *in_buffer, const Tro *B, const int ldb, const int B_multi_stride) override {
         if (std::is_same<OutputStage, Requantize32>::value) {
             col_bias = reinterpret_cast<int32_t *>(in_buffer);
 
@@ -1068,11 +1190,18 @@ public:
         }
     }
 
-    void pretranspose_B_array(void *in_buffer, const To *B, const int ldb, const int B_multi_stride) override {
-        pretranspose_B_array_part(in_buffer, B, ldb, B_multi_stride, 0, get_B_pretranspose_window_size());
+    // Support for transposed B is a property of the strategy::transpose type
+    bool B_pretranspose_supports_transpose() const override {
+        typename transform_type<strategy, MergeStep && std::is_same<OutputStage, Requantize32>::value>::type transforms;
+
+        return transforms.PrepareB_supports_transpose();
     }
 
-    void pretranspose_B_array_part(void *in_buffer, const To *B, const int ldb, const int B_multi_stride, size_t start, size_t end) override {
+    void pretranspose_B_array(void *in_buffer, const Tro *B, const int ldb, const int B_multi_stride, const bool transposed) override {
+        pretranspose_B_array_part(in_buffer, B, ldb, B_multi_stride, transposed, 0, get_B_pretranspose_window_size());
+    }
+
+    void pretranspose_B_array_part(void *in_buffer, const Tro *B, const int ldb, const int B_multi_stride, const bool transposed, size_t start, size_t end) override {
         // Perform column sums etc as part of the last block.
         if (end >= get_B_pretranspose_window_size()) {
             requantize_bias(in_buffer, B, ldb, B_multi_stride);
@@ -1080,7 +1209,7 @@ public:
 
         // Put the transposed data after the column sums - in non-quantized cases get_col_sum_size() == 0
         uintptr_t buffer_int = reinterpret_cast<uintptr_t>(in_buffer);
-        Toi *buffer = reinterpret_cast<Toi *>(buffer_int + get_col_sum_size());
+        Troi *buffer = reinterpret_cast<Troi *>(buffer_int + get_col_sum_size());
         _B_transposed = buffer;
 
         blockwalker current(*this);
@@ -1135,7 +1264,8 @@ public:
                         strat.transforms.PrepareB(buffer, B + (current.multi() * B_multi_stride), ldb,
                                                   x0, xmax,
                                                   (k_section_base * _Ksize) + k_offset,               // K starting point - compute row to read based on our section and the true section length.
-                                                  (k_section_base * _Ksize) + k_offset + k_length);   // K end point - starting point plus length computed above.
+                                                  (k_section_base * _Ksize) + k_offset + k_length,    // K end point - starting point plus length computed above.
+                                                  transposed);
 
                         // We need to modify our position based on the ROUNDED version of what we just did.
                         unsigned int padded_length = roundup(k_length, strategy::k_unroll());
@@ -1150,7 +1280,7 @@ public:
                 // In the single K section case, can process the whole lot in one go.
                 // Caution: 'blockwalker::kmax()' rounds up, so clamp to valid _Ksize.
                 strat.transforms.PrepareB(buffer, B + (current.multi() * B_multi_stride), ldb,
-                                          current.x0(), current.xmax(), current.k0(), std::min(current.kmax(), _Ksize));
+                                          current.x0(), current.xmax(), current.k0(), std::min(current.kmax(), _Ksize), transposed);
                 buffer += roundup(current.xmax() - current.x0(), strategy::out_width()) * roundup(current.kmax() - current.k0(), strategy::k_unroll());
             }
 
@@ -1164,7 +1294,7 @@ public:
     void set_pretransposed_B_data(void *in_buffer) override {
         // Put the transposed data after the column sums - in non-quantized cases get_col_sum_size() == 0
         uintptr_t buffer_int = reinterpret_cast<uintptr_t>(in_buffer);
-        _B_transposed = reinterpret_cast<Toi *>(buffer_int + get_col_sum_size());
+        _B_transposed = reinterpret_cast<Troi *>(buffer_int + get_col_sum_size());
         col_bias = reinterpret_cast<int32_t *>(in_buffer);
     }
 
@@ -1177,14 +1307,21 @@ public:
         }
     }
 
-    void set_indirect_parameters(size_t string_len, const To * const * const *ptr) override {
+    void set_dequantize_scale(const float scale) override {
+        if(std::is_same<OutputStage, DequantizeFloat>::value) {
+            DequantizeFloat* df = reinterpret_cast<DequantizeFloat *>(&_os);
+            df->scale = scale;
+        }
+    }
+
+    void set_indirect_parameters(size_t string_len, const Tlo * const * const *ptr) override {
         assert(string_len == _Ksize);
         _indirect_buf = ptr;
     }
 
     void set_convolution_parameters(ConvolutionParameters parms) override {
         assert(parms.input_channels == _Ksize);
-        _convolver = std::unique_ptr<convolver<To>>(new convolver<To>(parms));
+        _convolver = std::unique_ptr<convolver<Tlo>>(new convolver<Tlo>(parms));
     }
 
     // Estimate cycles for given problem given provided parameters
@@ -1195,7 +1332,7 @@ public:
         const PerformanceParameters &params = strategy::template get_performance_parameters<perf_type>(args._ci);
 
         uint64_t total_macs    = static_cast<uint64_t>(args._nbatches) * args._nmulti * roundup(args._Msize, strategy::out_height()) * roundup(args._Nsize, strategy::out_width()) * get_ktotal(args);
-        uint64_t prepare_bytes = static_cast<uint64_t>(args._nbatches) * args._nmulti * roundup(args._Msize, strategy::out_height()) * get_ktotal(args) * sizeof(Toi);
+        uint64_t prepare_bytes = static_cast<uint64_t>(args._nbatches) * args._nmulti * roundup(args._Msize, strategy::out_height()) * get_ktotal(args) * sizeof(Tloi);
         uint64_t merge_bytes   = static_cast<uint64_t>(args._nbatches) * args._nmulti * k_blocks * args._Msize * roundup(args._Nsize, strategy::out_width()) * sizeof(Tr);
 
         float mac_cycles     = static_cast<float>(total_macs) / params.kernel_macs_cycle;
@@ -1223,23 +1360,49 @@ public:
         c.inner_block_size = _k_block;
         c.outer_block_size = _x_block;
         c.filter = get_type_name<strategy>();
-        c.weight_format = get_weight_format(get_kernel_weight_format<strategy, FixedFormat, To>::get(), sizeof(To));
+        c.weight_format = get_weight_format(get_kernel_weight_format<strategy, FixedFormat, Tro>::get(), sizeof(Tro));
 
         return c;
+    }
+
+
+    void update_quantization_parameters(const Requantize32 &re) override {
+        if (std::is_same<OutputStage, Requantize32>::value) {
+            Requantize32 *qp = reinterpret_cast<Requantize32 *>(&_os);
+            qp->bias = re.bias;
+            qp->a_offset = re.a_offset;
+            qp->b_offset = re.b_offset;
+            qp->c_offset = re.c_offset;
+            qp->per_layer_left_shift = re.per_layer_left_shift;
+            qp->per_layer_right_shift = re.per_layer_right_shift;
+            qp->per_layer_mul = re.per_layer_mul;
+            qp->per_channel_requant = re.per_channel_requant;
+            qp->per_channel_left_shifts = re.per_channel_left_shifts;
+            qp->per_channel_right_shifts = re.per_channel_right_shifts;
+            qp->per_channel_muls = re.per_channel_muls;
+            qp->minval = re.minval;
+            qp->maxval = re.maxval;
+        }
     }
 };
 
 // Aliases for the variations
 template<typename strategy, typename To, typename Tr, typename OutputStage=Nothing>
-using GemmInterleavedNoMerge = GemmInterleaved<strategy, To, Tr, OutputStage, false>;
+using GemmInterleavedNoMerge = GemmInterleaved<strategy, To, To, Tr, OutputStage, false>;
 
 template<typename strategy, typename To, typename Tr, typename OutputStage=Nothing>
-using GemmInterleavedFixedFormat = GemmInterleaved<strategy, To, Tr, OutputStage, true, true>;
+using GemmInterleavedFixedFormat = GemmInterleaved<strategy, To, To, Tr, OutputStage, true, true>;
 
 template<typename strategy, typename To, typename Tr>
-using GemmInterleavedPretransposedNoMergeQuantizedInline = GemmInterleaved<strategy, To, Tr, Requantize32, false>;
+using GemmInterleavedPretransposedNoMergeQuantizedInline = GemmInterleaved<strategy, To, To, Tr, Requantize32, false>;
+
+template<typename strategy, typename Tlo, typename Tro, typename Tr>
+using GemmInterleavedQuantized = GemmInterleaved<strategy, Tlo, Tro, Tr, Requantize32>;
 
 template<typename strategy, typename To, typename Tr>
-using GemmInterleavedQuantized = GemmInterleaved<strategy, To, Tr, Requantize32>;
+using GemmInterleavedNoMergeDequantized = GemmInterleaved<strategy, To, To, Tr, DequantizeFloat, false>;
+
+template<typename strategy, typename Tlo, typename Tro, typename Tr>
+using GemmInterleavedDequantized = GemmInterleaved<strategy, Tlo, Tro, Tr, DequantizeFloat>;
 
 } // namespace arm_gemm

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Arm Limited.
+ * Copyright (c) 2022, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -70,9 +70,9 @@ const auto Pooling3dLayerDatasetQASYMM8Large = combine(combine(combine(combine(f
 using ShapeDataset = framework::dataset::ContainerDataset<std::vector<TensorShape>>;
 
 constexpr AbsoluteTolerance<float> tolerance_f32(0.001f); /**< Tolerance value for comparing reference's output against implementation's output for 32-bit floating-point type */
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
 constexpr AbsoluteTolerance<float> tolerance_f16(0.01f);     /**< Tolerance value for comparing reference's output against implementation's output for 16-bit floating-point type */
-#endif                                                       /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+#endif                                                       /* ARM_COMPUTE_ENABLE_FP16 */
 constexpr AbsoluteTolerance<uint8_t> tolerance_qasymm8(1);   /**< Tolerance value for comparing reference's output against implementation's output for unsigned 8-bit asymmetric type */
 constexpr AbsoluteTolerance<int8_t>  tolerance_qasymm8_s(1); /**< Tolerance value for comparing reference's output against implementation's output for signed 8-bit asymmetric type */
 
@@ -96,6 +96,40 @@ const auto qasymm8_signed_out_qinfo_dataset = framework::dataset::make("OutputQu
 
 TEST_SUITE(NEON)
 TEST_SUITE(Pooling3dLayer)
+
+TEST_CASE(SimpleIntegerAvgPooling, framework::DatasetMode::ALL)
+{
+    const auto pool_info = Pooling3dLayerInfo(PoolingType::AVG,
+        Size3D(1,1,1), Size3D(1,1,1), Padding3D(), true /* exclude padding */);
+    const auto shape = TensorShape(18U,1U,1U,1U); // > 16 for channel dim. to stress vector and leftover loops
+    const auto dtype = DataType::QASYMM8_SIGNED;
+    const auto layout = DataLayout::NDHWC;
+    const auto qinfo = QuantizationInfo(1.f, 0);
+
+    Tensor input = create_tensor<Tensor>(shape, dtype, 1, qinfo, layout);
+    Tensor output = create_tensor<Tensor>(shape, dtype, 1, qinfo, layout);
+
+    NEPooling3dLayer pool;
+    pool.configure(&input, &output, pool_info);
+
+    input.allocator()->allocate();
+    output.allocator()->allocate();
+
+    std::vector<int8_t> values = {-9, -8, -7, -6, -5, -4, -3, -2, -1,
+                                   0, 1, 2, 3, 4, 5, 6, 7, 8};
+
+    ARM_COMPUTE_EXPECT(values.size() == shape.x(), framework::LogLevel::ERRORS);
+
+    library->fill_static_values(Accessor(input), values);
+
+    pool.run();
+    for(unsigned int i = 0; i < values.size(); ++i)
+    {
+        const int8_t ref = values[i];
+        const int8_t target = reinterpret_cast<int8_t *>(output.buffer())[i];
+        ARM_COMPUTE_EXPECT(ref == target, framework::LogLevel::ERRORS);
+    }
+}
 
 // *INDENT-OFF*
 // clang-format off
@@ -239,14 +273,22 @@ FIXTURE_DATA_TEST_CASE(RunLarge, NEPoolingLayer3dFixture<float>, framework::Data
 TEST_SUITE_END() // GlobalPooling
 TEST_SUITE_END() // FP32
 
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
 TEST_SUITE(FP16)
 
 FIXTURE_DATA_TEST_CASE(RunSmall, NEPoolingLayer3dFixture<half>, framework::DatasetMode::PRECOMMIT, combine(datasets::Small5x5Shapes(), combine(Pooling3dLayerDatasetFPSmall,
                                                                                                            framework::dataset::make("DataType", DataType::F16))))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_f16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_f16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 
 
@@ -254,8 +296,16 @@ FIXTURE_DATA_TEST_CASE(RunLarge, NEPoolingLayer3dFixture<half>, framework::Datas
                                                                                                            framework::dataset::make("DataType",
                                                                                                                    DataType::F16))))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_f16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_f16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 
 TEST_SUITE(GlobalPooling)
@@ -273,8 +323,16 @@ FIXTURE_DATA_TEST_CASE(RunSmall, NEPoolingLayer3dFixture<half>, framework::Datas
                                     framework::dataset::make("ExcludePadding", {false, true})),
                                     framework::dataset::make("DataType", DataType::F16)))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_f16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_f16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 
 
@@ -286,8 +344,16 @@ FIXTURE_DATA_TEST_CASE(RunSmallGlobal, NEPooling3dLayerGlobalFixture<half>, fram
                                     framework::dataset::make("PoolingType", { PoolingType::AVG, PoolingType::L2, PoolingType::MAX })),
                                     framework::dataset::make("DataType", DataType::F16)))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_f16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_f16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 
 FIXTURE_DATA_TEST_CASE(RunLarge, NEPoolingLayer3dFixture<half>, framework::DatasetMode::NIGHTLY,
@@ -302,15 +368,23 @@ FIXTURE_DATA_TEST_CASE(RunLarge, NEPoolingLayer3dFixture<half>, framework::Datas
                                     framework::dataset::make("ExcludePadding", false)),
                                     framework::dataset::make("DataType", DataType::F16)))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_f16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_f16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 
 // clang-format on
 // *INDENT-ON*
 TEST_SUITE_END() // GlobalPooling
 TEST_SUITE_END() // FP16
-#endif           /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+#endif           /* ARM_COMPUTE_ENABLE_FP16 */
 TEST_SUITE_END() // Float
 TEST_SUITE(Quantized)
 

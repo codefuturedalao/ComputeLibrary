@@ -1,5 +1,5 @@
 ///
-/// Copyright (c) 2017-2021, 2023 Arm Limited.
+/// Copyright (c) 2017-2021, 2023-2024 Arm Limited.
 ///
 /// SPDX-License-Identifier: MIT
 ///
@@ -31,7 +31,7 @@ namespace arm_compute
 @section architecture_compute_library Compute Library architecture
 
 The Compute Library is a collection of low level algorithm implementations known as kernels @ref IKernel.
-These kernels are implemented as operators @ref IOperator that do not allocate any memory (i.e. all the memory allocations/mappings have to be handled by the caller)
+These kernels are implemented as operators IOperator that do not allocate any memory (i.e. all the memory allocations/mappings have to be handled by the caller)
 and are are designed to be embedded in existing projects and applications.
 
 A higher-level interface wraps the operators into functions @ref IFunction that:
@@ -58,7 +58,7 @@ Required toolchain: android-ndk-r23-beta5 or later.
 
 To build for BF16: "neon" flag should be set "=1" and "arch" has to be "=armv8.6-a", "=armv8.6-a-sve", or "=armv8.6-a-sve2". For example:
 
-	scons arch=armv8.6-a-sve neon=1 opencl=0 extra_cxx_flags="-fPIC" benchmark_tests=0 validation_tests=0 validation_examples=1 os=android Werror=0 toolchain_prefix=aarch64-linux-android29
+	scons arch=armv8.6-a-sve neon=1 opencl=0 extra_cxx_flags="-fPIC" benchmark_tests=0 validation_tests=0 examples=1 os=android Werror=0 toolchain_prefix=aarch64-linux-android29
 
 To enable BF16 acceleration when running FP32 "fast-math" has to be enabled and that works only for Neon convolution layer using cpu gemm.
 In this scenario on CPU: the CpuGemmConv2d kernel performs the conversion from FP32, type of input tensor, to BF16 at block level to exploit the arithmetic capabilities dedicated to BF16. Then transforms back to FP32, the output tensor type.
@@ -568,9 +568,14 @@ The responsibilities of the operators can be summarized as follows:
 
 Selecting multi_isa when building Compute Library, will create a library that contains all the supported ISA features.
 Based on the CPU support, the appropriate kernel will be selected at runtime for execution. Currently this option is
-supported in two configurations: (i) with armv8.2-a as the base architecture where all the supported ISA features are enabled and
-(ii) with armv8-a as the base architecture where only a subset of ISA features (everything except FP16 vector arithmetic)
-are enabled in the build.
+supported in two configurations: (i) with armv8.2-a (ii) with armv8-a. In both cases all the supported ISA features are enabled
+in the build.
+
+The arch option in a multi_isa build sets the minimum architecture required to run the resulting binary.
+For example a multi_isa build for armv8-a will run on any armv8-a or later, when the binary is executed on a armv8.2-a device
+it will use the additional cpu features present in this architecture: FP16 and dot product.
+In order to have a binary like this (multi_isa+armv8-a) the FP16 and dot product kernels in the library are compiled for the
+target armv8.2-a and all other common code for armv8-a.
 
 @subsection architecture_experimental_per_operator_build Per-operator build
 
@@ -600,11 +605,6 @@ Supported data-types options are:
 - "NCHW"
 
 The list of supported operators can be found in filelist.json in the root of Compute Library repo.
-
-@subsection architecture_experimental_build_high_priority_operators Build high priority operators
-
-Selecting high_priority when building Compute Library, one new library will be created: libarm_compute_hp and
-will contain a selected subset of the libary operators. Currently the operators are staticly set.
 
 */
 } // namespace arm_compute

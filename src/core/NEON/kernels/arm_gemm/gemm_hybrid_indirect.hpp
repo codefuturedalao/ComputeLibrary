@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Arm Limited.
+ * Copyright (c) 2017-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -260,8 +260,8 @@ struct kernel_weight_format<strategy, false> {
 } // anonymous namespace
 
 // Implementation of the GemmCommon abstract class.
-template<typename strategy, typename To, typename Tr, typename OutputStage=Nothing, bool SeparateQuantize=false, bool FixedFormat=false>
-class GemmHybridIndirect : public GemmCommon<To, Tr> {
+template<typename strategy, typename To, typename Tw, typename Tr, typename OutputStage=Nothing, bool SeparateQuantize=false, bool FixedFormat=false>
+class GemmHybridIndirect : public GemmCommon<To, Tw, Tr> {
     typedef typename strategy::lhs_operand_type Tloi;
     typedef typename strategy::rhs_operand_type Troi;
     typedef typename strategy::result_type Tri;
@@ -276,8 +276,8 @@ class GemmHybridIndirect : public GemmCommon<To, Tr> {
     const unsigned int _rounded_Ksize;
 
     /* Blocking info */
+    unsigned int _n_block;
     const unsigned int _k_block;
-    const unsigned int _n_block;
     const unsigned int _Mround;
 
     /* Pretransposed buffer. */
@@ -292,7 +292,7 @@ class GemmHybridIndirect : public GemmCommon<To, Tr> {
     // Array of pointers to output rows
 //    Tr * const *        _output_ptrs;
 
-    const NDRange<4> _window_range;
+    NDRange<4> _window_range;
 
     unsigned int get_col_sum_size() const {
         if (std::is_same<OutputStage, Requantize32>::value) {
@@ -389,7 +389,7 @@ public:
     GemmHybridIndirect(const GemmArgs &args, const OutputStage &os)
               : _args(args), _os(os), _Ktotal(get_ktotal(args)),
                 _rounded_Ksize(roundup(args._Ksize, strategy::k_unroll())),
-                _k_block(compute_k_block(args)), _n_block(compute_n_block(args, os)),
+                _n_block(compute_n_block(args, os)), _k_block(compute_k_block(args)),
                 _Mround(roundup(args._Msize, strategy::out_height())),
                 _window_range(iceildiv(args._Msize, strategy::out_height()), args._nbatches,
                               iceildiv(args._Nsize, _n_block), args._nmulti)
@@ -403,7 +403,7 @@ public:
     GemmHybridIndirect(const GemmArgs &args)
               : _args(args), _Ktotal(get_ktotal(args)),
                 _rounded_Ksize(roundup(args._Ksize, strategy::k_unroll())),
-                _k_block(compute_k_block(args)), _n_block(compute_n_block(args)),
+                _n_block(compute_n_block(args)), _k_block(compute_k_block(args)),
                 _Mround(roundup(args._Msize, strategy::out_height())),
                 _window_range(iceildiv(args._Msize, strategy::out_height()), args._nbatches,
                               iceildiv(args._Nsize, _n_block), args._nmulti)
@@ -530,7 +530,7 @@ public:
                                  (m_end - m_start), (nmax - n0), kern_k, b_panel, this->_ldb, out_arg,
                                  (this->_bias && first_pass) ? this->_bias + (multi * this->_bias_multi_stride) + n0 : nullptr,
                                  last_pass ? _args._act : Activation(),
-                                 !first_pass,
+                                 !first_pass || _args._accumulate,
                                  // Quantization parameters
                                  _os, _col_bias+(multi * _args._Nsize), n0);
                 } else if (_convolver) {
@@ -563,7 +563,7 @@ public:
                                  (m_end - m_start), (nmax - n0), kern_k, b_panel, this->_ldb, out_arg,
                                  (this->_bias && first_pass) ? this->_bias + (multi * this->_bias_multi_stride) + n0 : nullptr,
                                  last_pass ? _args._act : Activation(),
-                                 !first_pass,
+                                 !first_pass || _args._accumulate,
                                  // Quantization parameters
                                  _os, _col_bias+(multi * _args._Nsize), n0);
                 } else {
@@ -579,7 +579,7 @@ public:
                                  (m_end - m_start), (nmax - n0), kern_k, b_panel, this->_ldb, out_arg,
                                  (this->_bias && first_pass) ? this->_bias + (multi * this->_bias_multi_stride) + n0 : nullptr,
                                  last_pass ? _args._act : Activation(),
-                                 !first_pass,
+                                 !first_pass || _args._accumulate,
                                  // Quantization parameters
                                  _os, _col_bias+(multi * _args._Nsize), n0);
                 }
@@ -618,7 +618,7 @@ public:
         return _args._nmulti * iceildiv(_args._Nsize, strategy::out_width());
     }
 
-    void requantize_bias(void *in_buffer, const To *B, const int ldb, const int B_multi_stride) override {
+    void requantize_bias(void *in_buffer, const Tw *B, const int ldb, const int B_multi_stride) override {
         if (std::is_same<OutputStage, Requantize32>::value) {
             _col_bias = reinterpret_cast<int32_t *>(in_buffer);
 
@@ -631,11 +631,16 @@ public:
         }
     }
 
-    void pretranspose_B_array(void *in_buffer, const To *B, const int ldb, const int B_multi_stride) override {
-        pretranspose_B_array_part(in_buffer, B, ldb, B_multi_stride, 0, get_B_pretranspose_window_size());
+    bool B_pretranspose_supports_transpose() const override {
+        strategy strat(_args._ci);
+        return strat.transforms.PrepareB_supports_transpose();
     }
 
-    void pretranspose_B_array_part(void *in_buffer, const To *B, const int ldb, const int B_multi_stride, size_t start, size_t end) override {
+    void pretranspose_B_array(void *in_buffer, const Tw *B, const int ldb, const int B_multi_stride, bool transposed) override {
+        pretranspose_B_array_part(in_buffer, B, ldb, B_multi_stride, transposed, 0, get_B_pretranspose_window_size());
+    }
+
+    void pretranspose_B_array_part(void *in_buffer, const Tw *B, const int ldb, const int B_multi_stride, bool transposed, size_t start, size_t end) override {
         if (end >= get_B_pretranspose_window_size()) {
             requantize_bias(in_buffer, B, ldb, B_multi_stride);
         }
@@ -717,7 +722,8 @@ public:
                             strat.transforms.PrepareB(buffer, B + (multi * B_multi_stride), ldb,
                                                       x0, xmax,
                                                       (k_section_base * _args._Ksize) + k_offset,               // K starting point - compute row to read based on our section and the true section length.
-                                                      (k_section_base * _args._Ksize) + k_offset + k_length);   // K end point - starting point plus length computed above.
+                                                      (k_section_base * _args._Ksize) + k_offset + k_length,    // K end point - starting point plus length computed above.
+                                                      transposed);
 
                             // We need to modify our position based on the ROUNDED version of what we just did.
                             unsigned int padded_length = roundup(k_length, strategy::k_unroll());
@@ -731,7 +737,7 @@ public:
                 } else {
                     // In the single K section case, can process the whole lot in one go.
                     strat.transforms.PrepareB(buffer, B + (multi * B_multi_stride), ldb,
-                                              n_start, n_end, k0, std::min(kmax, _args._Ksize));
+                                              n_start, n_end, k0, std::min(kmax, _args._Ksize), transposed);
                 }
             }
         }
@@ -826,10 +832,42 @@ public:
 
         return c;
     }
+
+    void update_quantization_parameters(const Requantize32 &re) override {
+        if (std::is_same<OutputStage, Requantize32>::value) {
+            Requantize32 *qp = reinterpret_cast<Requantize32 *>(&_os);
+            qp->bias = re.bias;
+            qp->a_offset = re.a_offset;
+            qp->b_offset = re.b_offset;
+            qp->c_offset = re.c_offset;
+            qp->per_layer_left_shift = re.per_layer_left_shift;
+            qp->per_layer_right_shift = re.per_layer_right_shift;
+            qp->per_layer_mul = re.per_layer_mul;
+            qp->per_channel_requant = re.per_channel_requant;
+            qp->per_channel_left_shifts = re.per_channel_left_shifts;
+            qp->per_channel_right_shifts = re.per_channel_right_shifts;
+            qp->per_channel_muls = re.per_channel_muls;
+            qp->minval = re.minval;
+            qp->maxval = re.maxval;
+            _n_block = compute_n_block(_args, _os);
+
+            // Also update the window range because computation of n_block may change wrt B's offset
+            NDRange<4> window_range(iceildiv(_args._Msize, strategy::out_height()), _args._nbatches,
+                              iceildiv(_args._Nsize, _n_block), _args._nmulti);
+
+            // The updated window range should be propagated to kernel execution window
+            // after this method has been called. Otherwise, the window set up at configure time
+            // of the associated kernel will remain.
+            //
+            // See Fallback::update_quantization_parameters() in src/cpu/operators/internal/CpuGemmAssemblyDispatch.cpp
+            // for how this is done.
+            _window_range = window_range;
+        }
+    }
 };
 
 template<typename strategy, typename To, typename Tr, typename OutputStage=Nothing>
-using GemmHybridIndirectFixedFormat = GemmHybridIndirect<strategy, To, Tr, OutputStage, false, true>;
+using GemmHybridIndirectFixedFormat = GemmHybridIndirect<strategy, To, To, Tr, OutputStage, false, true>;
 
 } // namespace arm_gemm
 

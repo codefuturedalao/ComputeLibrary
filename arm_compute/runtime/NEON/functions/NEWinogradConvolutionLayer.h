@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Arm Limited.
+ * Copyright (c) 2017-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,6 +27,7 @@
 #include "arm_compute/core/Types.h"
 #include "arm_compute/function_info/ActivationLayerInfo.h"
 #include "arm_compute/runtime/IFunction.h"
+#include "arm_compute/runtime/MemoryManagerOnDemand.h"
 #include "arm_compute/runtime/Tensor.h"
 
 #include <memory>
@@ -38,9 +39,9 @@ class ITensor;
 
 /** Basic function to simulate a convolution layer. This function calls the following kernels:
  *
- * -# @ref cpu::CpuWinogradConv2dTransformInputKernel
- * -# @ref cpu::CpuWinogradConv2dTransformOutputKernel
- * -# @ref cpu::CpuGemmAssemblyDispatch
+ * -# cpu::CpuWinogradConv2dTransformInputKernel
+ * -# cpu::CpuWinogradConv2dTransformOutputKernel
+ * -# cpu::CpuGemmAssemblyDispatch
  * -# @ref CPPPermute (three times: weights, input and output)
  *
  * @note  Some Winograd configurations (i.e. F(2x2, 5x5), F(4x4, 5x5)) are supported only with enable_fast_math = true
@@ -49,7 +50,10 @@ class NEWinogradConvolutionLayer : public IFunction
 {
 public:
     /** Constructor */
-    NEWinogradConvolutionLayer(const std::shared_ptr<IMemoryManager> &memory_manager = nullptr);
+    NEWinogradConvolutionLayer(const std::shared_ptr<IMemoryManager> &memory_manager);
+    NEWinogradConvolutionLayer() : NEWinogradConvolutionLayer(MemoryManagerOnDemand::make_default())
+    {
+    }
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEWinogradConvolutionLayer(const NEWinogradConvolutionLayer &) = delete;
     /** Default move constructor */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2022 Arm Limited.
+ * Copyright (c) 2021-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,20 +29,40 @@ namespace arm_compute
 {
 namespace cpu
 {
+template <bool IS_LOG>
 void neon_qasymm8_softmax(const ITensor *in,
-                          const ITensor *max,
                           void *const    tmp,
                           ITensor       *out,
                           const float    beta,
-                          bool           is_log,
-                          const Window  &window)
+                          int            axis,
+                          const Window  &window,
+                          const void    *lut_ptr)
 {
-    return neon_softmax_logits_1d_quantized<qasymm8_t>(in, max, tmp, out, beta, is_log, window);
+    ARM_COMPUTE_UNUSED(lut_ptr);
+    if (axis == 0)
+    {
+        return neon_softmax_x_quantized<qasymm8_t, IS_LOG>(in, tmp, out, beta, axis, window);
+    }
+    else
+    {
+        return neon_softmax_non_x_quantized<qasymm8_t, IS_LOG>(in, tmp, out, beta, axis, window);
+    }
 }
 
-void neon_qasymm8_logits(const ITensor *in, ITensor *out, const Window &window)
-{
-    return neon_logits_1d_max<qasymm8_t>(in, out, window);
-}
+template void neon_qasymm8_softmax<true>(const ITensor *in,
+                                         void *const    tmp,
+                                         ITensor       *out,
+                                         const float    beta,
+                                         int            axis,
+                                         const Window  &window,
+                                         const void    *lut_ptr);
+template void neon_qasymm8_softmax<false>(const ITensor *in,
+                                          void *const    tmp,
+                                          ITensor       *out,
+                                          const float    beta,
+                                          int            axis,
+                                          const Window  &window,
+                                          const void    *lut_ptr);
+
 } // namespace cpu
 } // namespace arm_compute
