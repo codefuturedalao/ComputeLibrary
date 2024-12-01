@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021, 2023 Arm Limited.
+ * Copyright (c) 2018-2021, 2023-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -79,7 +79,17 @@ protected:
     TensorType compute_target(const TensorShape &shape, const TensorShape &axis_shape, DataType data_type, bool use_negative_axis, bool use_inverted_axis = false)
     {
         // Create tensors
-        TensorType src  = create_tensor<TensorType>(shape, data_type, 1);
+        QuantizationInfo qinfo = QuantizationInfo();
+        if(data_type == DataType::QSYMM8_PER_CHANNEL)
+        {
+            // We need dummy scale and offset values for tensor buffer allocation
+            const std::vector<float> scales(1);
+            const std::vector<int> offsets(1);
+
+            qinfo = QuantizationInfo(scales, offsets);
+        }
+
+        TensorType src  = create_tensor<TensorType>(shape, data_type, 1, qinfo);
         TensorType axis = create_tensor<TensorType>(axis_shape, DataType::U32, 1);
         TensorType dst;
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2023 Arm Limited.
+ * Copyright (c) 2021-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -239,12 +239,12 @@ void CpuDepthwiseConv2dAssemblyWrapperKernel::configure(const ITensorInfo *src,
             create_arm_dwc_quant<int8_t, int8_t, int8_t>(src, weights, dst, info, cpu_info, _kernel_asm, _multipliers,
                                                          _right_shifts, _left_shifts, asm_kernel_name);
             break;
-#if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
+#if defined(ENABLE_FP16_KERNELS)
         case DataType::F16:
             create_arm_dwc<float16_t, float16_t, float16_t>(src, weights, dst, info, cpu_info, _kernel_asm,
                                                             asm_kernel_name);
             break;
-#endif // defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
+#endif // defined(ENABLE_FP16_KERNELS)
         case DataType::F32:
             create_arm_dwc<float, float, float>(src, weights, dst, info, cpu_info, _kernel_asm, asm_kernel_name);
             break;
@@ -281,6 +281,7 @@ Status CpuDepthwiseConv2dAssemblyWrapperKernel::validate(const ITensorInfo     *
     if (is_data_type_quantized_per_channel(weights->data_type()))
     {
         ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(weights, 1, DataType::QSYMM8_PER_CHANNEL);
+        ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(src, 1, DataType::QASYMM8, DataType::QASYMM8_SIGNED);
         ARM_COMPUTE_RETURN_ERROR_ON(weights->dimension(0) != weights->quantization_info().scale().size());
     }
     else

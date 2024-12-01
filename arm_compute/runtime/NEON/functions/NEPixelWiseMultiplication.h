@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2021, 2023 Arm Limited.
+ * Copyright (c) 2016-2021, 2023-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_NEPIXELWISEMULTIPLICATION_H
-#define ARM_COMPUTE_NEPIXELWISEMULTIPLICATION_H
+#ifndef ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEPIXELWISEMULTIPLICATION_H
+#define ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEPIXELWISEMULTIPLICATION_H
 
 #include "arm_compute/core/Rounding.h"
 #include "arm_compute/core/Types.h"
@@ -36,7 +36,7 @@ namespace arm_compute
 class ITensor;
 class ITensorInfo;
 
-/** Basic function to run @ref cpu::CpuMul */
+/** Basic function to run cpu::CpuMul */
 class NEPixelWiseMultiplication : public IFunction
 {
 public:
@@ -69,8 +69,9 @@ public:
      * |U8             |S16            |S16            |
      * |S16            |U8             |S16            |
      * |S16            |S16            |S16            |
+     * |S32            |S32            |S32            |
      * |F16            |F16            |F16            |
-     * |F32            |S32            |F32            |
+     * |F32            |F32            |F32            |
      *
      * @note For @p scale equal to 1/255 only round to nearest even (implemented as round half up) is supported.
      *       For all other scale values only round to zero (implemented as round towards minus infinity) is supported.
@@ -143,7 +144,7 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 
-/** Basic function to run @ref cpu::CpuComplexMul. */
+/** Basic function to run cpu::CpuComplexMul. */
 class NEComplexPixelWiseMultiplication : public IFunction
 {
 public:
@@ -192,4 +193,4 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute
-#endif /*ARM_COMPUTE_NEPIXELWISEMULTIPLICATION_H */
+#endif // ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEPIXELWISEMULTIPLICATION_H

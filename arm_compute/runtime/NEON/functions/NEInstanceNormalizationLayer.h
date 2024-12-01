@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021 Arm Limited.
+ * Copyright (c) 2019-2021, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,12 +21,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_NEINSTANCENORMALIZATIONLAYER_H
-#define ARM_COMPUTE_NEINSTANCENORMALIZATIONLAYER_H
+#ifndef ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEINSTANCENORMALIZATIONLAYER_H
+#define ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEINSTANCENORMALIZATIONLAYER_H
 
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/IMemoryManager.h"
 #include "arm_compute/runtime/MemoryGroup.h"
+#include "arm_compute/runtime/MemoryManagerOnDemand.h"
 #include "arm_compute/runtime/NEON/functions/NEPermute.h"
 #include "arm_compute/runtime/NEON/functions/NEReductionOperation.h"
 #include "arm_compute/runtime/Tensor.h"
@@ -41,13 +42,16 @@ class NEInstanceNormalizationLayerKernel;
 /** Basic function to perform a Instance normalization.
  *
  * This function runs the following kernels:
- * -# @ref NEInstanceNormalizationLayerKernel
+ * -# NEInstanceNormalizationLayerKernel
  */
 class NEInstanceNormalizationLayer : public IFunction
 {
 public:
     /** Constructor */
-    NEInstanceNormalizationLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    NEInstanceNormalizationLayer(std::shared_ptr<IMemoryManager> memory_manager);
+    NEInstanceNormalizationLayer() : NEInstanceNormalizationLayer(MemoryManagerOnDemand::make_default())
+    {
+    }
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEInstanceNormalizationLayer(const NEInstanceNormalizationLayer &) = delete;
     /** Prevent instances of this class from being copied (As this class contains pointers) */
@@ -108,4 +112,4 @@ private:
     Tensor                                              _permuted_output;
 };
 } // namespace arm_compute
-#endif /* ARM_COMPUTE_NEINSTANCENORMALIZATIONLAYER_H */
+#endif // ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEINSTANCENORMALIZATIONLAYER_H

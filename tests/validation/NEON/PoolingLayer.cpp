@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021, 2023 Arm Limited.
+ * Copyright (c) 2017-2021, 2023-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -58,9 +58,9 @@ const auto PoolingLayerDatasetQASYMM8Small = combine(combine(combine(framework::
                                                      framework::dataset::make("ExcludePadding", { true }));
 
 constexpr AbsoluteTolerance<float> tolerance_f32(0.001f); /**< Tolerance value for comparing reference's output against implementation's output for float types */
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
 constexpr AbsoluteTolerance<float> tolerance_f16(0.01f);     /**< Tolerance value for comparing reference's output against implementation's output for float types */
-#endif                                                       /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+#endif                                                       /* ARM_COMPUTE_ENABLE_FP16 */
 constexpr AbsoluteTolerance<uint8_t> tolerance_qasymm8(1);   /**< Tolerance value for comparing reference's output against implementation's output for unsigned 8-bit asymmetric type */
 constexpr AbsoluteTolerance<int8_t>  tolerance_qasymm8_s(1); /**< Tolerance value for comparing reference's output against implementation's output for signed 8-bit asymmetric type */
 const auto                           pool_data_layout_dataset = framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC });
@@ -105,7 +105,9 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(
                                             TensorInfo(TensorShape(13U, 13U, 5U), 1, DataType::QASYMM8), // Invalid exclude_padding = false with quantized type, no actual padding and NHWC
                                             TensorInfo(TensorShape(13U, 13U, 5U), 1, DataType::F32),
                                             TensorInfo(TensorShape(1U, 16U, 1U),  1, DataType::F32),
-                                          }),
+                                            TensorInfo(TensorShape(112, 112, 64,1), 1, DataType::F32, DataLayout::NHWC), // Mismatching number of channels
+                                            TensorInfo(TensorShape(112, 112, 64,1), 1, DataType::F32, DataLayout::NHWC), // Mismatching width
+                                         }),
     framework::dataset::make("OutputInfo",{ TensorInfo(TensorShape(25U, 11U, 2U), 1, DataType::F16),
                                             TensorInfo(TensorShape(25U, 10U, 2U), 1, DataType::F32),
                                             TensorInfo(TensorShape(30U, 11U, 2U), 1, DataType::F32),
@@ -115,7 +117,10 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(
                                             TensorInfo(TensorShape(12U, 12U, 5U), 1, DataType::QASYMM8),
                                             TensorInfo(TensorShape(25U, 11U, 2U), 1, DataType::F32),
                                             TensorInfo(TensorShape(1U, 15U, 1U), 1, DataType::F32),
-                                          })),
+                                            TensorInfo(TensorShape(56, 56, 64,1), 1, DataType::F32, DataLayout::NHWC),
+                                            TensorInfo(TensorShape(56, 51, 64,1), 1, DataType::F32, DataLayout::NHWC),
+
+                                           })),
     framework::dataset::make("PoolInfo",  { PoolingLayerInfo(PoolingType::AVG, 3, DataLayout::NCHW, PadStrideInfo(1, 1, 0, 0)),
                                             PoolingLayerInfo(PoolingType::AVG, 3, DataLayout::NCHW, PadStrideInfo(1, 1, 0, 0)),
                                             PoolingLayerInfo(PoolingType::AVG, 2, DataLayout::NCHW, PadStrideInfo(1, 1, 2, 0)),
@@ -125,8 +130,11 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(
                                             PoolingLayerInfo(PoolingType::AVG, 2, DataLayout::NHWC, PadStrideInfo(), false),
                                             PoolingLayerInfo(PoolingType::AVG, DataLayout::NCHW),
                                             PoolingLayerInfo(PoolingType::MAX, 2, DataLayout::NHWC, PadStrideInfo(1, 1, 0, 0), false),
+                                            PoolingLayerInfo(PoolingType::MAX,3,DataLayout::NHWC,PadStrideInfo(2,2,1,1)),
+                                            PoolingLayerInfo(PoolingType::MAX,3,DataLayout::NHWC,PadStrideInfo(2,2,1,1)),
+
                                            })),
-    framework::dataset::make("Expected", { false, false, false, false, true, false, true, false, false})),
+    framework::dataset::make("Expected", { false, false, false, false, true, false, true, false, false, false, false})),
     input_info, output_info, pool_info, expected)
 {
     bool is_valid = bool(NEPoolingLayer::validate(&input_info.clone()->set_is_resizable(false), &output_info.clone()->set_is_resizable(false), pool_info));
@@ -152,6 +160,40 @@ const auto PoolingLayerIndicesDatasetFPSmall = combine(combine(combine(framework
 const auto PoolingLayerKernelIndicesDatasetFPSmall = combine(combine(combine(framework::dataset::make("PoolType", { PoolingType::MAX }), framework::dataset::make("PoolingSize", { Size2D(2, 2), Size2D(3, 3), Size2D(7, 7) })),
                                                                      framework::dataset::make("PadStride", { PadStrideInfo(1, 1, 0, 0), PadStrideInfo(2, 1, 0, 0), PadStrideInfo(1, 1, 1, 1) })),
                                                              framework::dataset::make("ExcludePadding", { false }));
+
+TEST_CASE(SimpleIntegerAvgPooling, framework::DatasetMode::ALL)
+{
+    const auto pool_info = PoolingLayerInfo(PoolingType::AVG, Size2D(1,1), DataLayout::NHWC);
+    const auto shape = TensorShape(18U,1U,1U); // > 16 for channel dim. to stress vector and leftover loops
+    const auto dtype = DataType::QASYMM8_SIGNED;
+    const auto layout = DataLayout::NHWC;
+    const auto qinfo = QuantizationInfo(1.f, 0);
+
+    Tensor input = create_tensor<Tensor>(shape, dtype, 1, qinfo, layout);
+    Tensor output = create_tensor<Tensor>(shape, dtype, 1, qinfo, layout);
+
+    NEPoolingLayer pool;
+    pool.configure(&input, &output, pool_info);
+
+    input.allocator()->allocate();
+    output.allocator()->allocate();
+
+    std::vector<int8_t> values = {-9, -8, -7, -6, -5, -4, -3, -2, -1,
+                                   0, 1, 2, 3, 4, 5, 6, 7, 8};
+
+    ARM_COMPUTE_EXPECT(values.size() == shape.x(), framework::LogLevel::ERRORS);
+
+    library->fill_static_values(Accessor(input), values);
+    pool.run();
+
+    for(unsigned int i = 0; i < values.size(); ++i)
+    {
+        const int8_t ref = values[i];
+        const int8_t target = reinterpret_cast<int8_t *>(output.buffer())[i];
+        ARM_COMPUTE_EXPECT(ref == target, framework::LogLevel::ERRORS);
+    }
+}
+
 TEST_SUITE(Float)
 TEST_SUITE(FP32)
 FIXTURE_DATA_TEST_CASE(RunIndices, NEPoolingLayerIndicesFixture<float>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::SmallNoneUnitShapes(),
@@ -218,7 +260,7 @@ FIXTURE_DATA_TEST_CASE(PoolRegionCompletelyOutsideInput, NEPoolingLayerFixture<f
 TEST_SUITE_END() // CornerCases
 TEST_SUITE_END() // FP32
 
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
 TEST_SUITE(FP16)
 FIXTURE_DATA_TEST_CASE(RunIndices, NEPoolingLayerIndicesFixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::SmallNoneUnitShapes(),
                                                                                                                   combine(PoolingLayerIndicesDatasetFPSmall,
@@ -227,23 +269,47 @@ FIXTURE_DATA_TEST_CASE(RunIndices, NEPoolingLayerIndicesFixture<half>, framework
                                                                                                                   framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC })),
                                                                                                                   framework::dataset::make("UseKernelIndices", { false })))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_f16);
-    validate(Accessor(_target_indices), _ref_indices);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_f16);
+        validate(Accessor(_target_indices), _ref_indices);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 FIXTURE_DATA_TEST_CASE(RunSmall, NEPoolingLayerFixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(datasets::SmallNoneUnitShapes(), combine(PoolingLayerDatasetFPSmall,
                                                                                                                  framework::dataset::make("DataType", DataType::F16))),
                                                                                                          pool_data_layout_dataset))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_f16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_f16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 FIXTURE_DATA_TEST_CASE(RunLarge, NEPoolingLayerFixture<half>, framework::DatasetMode::NIGHTLY, combine(combine(datasets::LargeShapes(), combine(PoolingLayerDatasetFP,
                                                                                                                framework::dataset::make("DataType", DataType::F16))),
                                                                                                        pool_data_layout_dataset))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_f16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_f16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 TEST_SUITE(CornerCases)
 FIXTURE_DATA_TEST_CASE(PoolRegionCompletelyOutsideInput, NEPoolingLayerFixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(pool_outside_input_dataset,
@@ -251,12 +317,20 @@ FIXTURE_DATA_TEST_CASE(PoolRegionCompletelyOutsideInput, NEPoolingLayerFixture<h
                                                 DataType::F16)),
                        pool_data_layout_dataset))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_f16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_f16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 TEST_SUITE_END() // CornerCases
 TEST_SUITE_END() // FP16
-#endif           /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+#endif           /* ARM_COMPUTE_ENABLE_FP16 */
 TEST_SUITE_END() // Float
 
 TEST_SUITE(Quantized)

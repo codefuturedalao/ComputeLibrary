@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Arm Limited.
+ * Copyright (c) 2023-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,6 +27,7 @@
 
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/Validate.h"
+#include "arm_compute/runtime/Scheduler.h"
 
 #include "src/common/utils/Log.h"
 #include "src/core/NEON/kernels/arm_gemm/transform.hpp"
@@ -54,17 +55,41 @@ void NEReorderKernel::run(const Window &window, const ThreadInfo &info)
                 {
                     case WeightFormat::OHWIo4:
                     {
-                        arm_gemm::Transform<4, 1, true, arm_gemm::VLType::None>(
-                            reinterpret_cast<float *>(_output->buffer()) + jump_rows,
-                            reinterpret_cast<float *>(_input->buffer()), stride, k_start, k_end, 0, _xmax);
+                        switch (_output->info()->data_type())
+                        {
+                            case DataType::F32:
+                                arm_gemm::Transform<4, 1, true, arm_gemm::VLType::None>(
+                                    reinterpret_cast<float *>(_output->buffer()) + jump_rows,
+                                    reinterpret_cast<float *>(_input->buffer()), stride, k_start, k_end, 0, _xmax);
+                                break;
+                            case DataType::BFLOAT16:
+                                arm_gemm::Transform<4, 4, true, arm_gemm::VLType::None>(
+                                    reinterpret_cast<bfloat16 *>(_output->buffer()) + jump_rows,
+                                    reinterpret_cast<float *>(_input->buffer()), stride, k_start, k_end, 0, _xmax);
+                                break;
+                            default:
+                                ARM_COMPUTE_ERROR("Unsupported data type!");
+                        }
                         break;
                     }
 #if defined(ARM_COMPUTE_ENABLE_SVE)
                     case WeightFormat::OHWIo8:
                     {
-                        arm_gemm::Transform<1, 1, true, arm_gemm::VLType::SVE>(
-                            reinterpret_cast<float *>(_output->buffer()) + jump_rows,
-                            reinterpret_cast<float *>(_input->buffer()), stride, k_start, k_end, 0, _xmax);
+                        switch (_output->info()->data_type())
+                        {
+                            case DataType::F32:
+                                arm_gemm::Transform<1, 1, true, arm_gemm::VLType::SVE>(
+                                    reinterpret_cast<float *>(_output->buffer()) + jump_rows,
+                                    reinterpret_cast<float *>(_input->buffer()), stride, k_start, k_end, 0, _xmax);
+                                break;
+                            case DataType::BFLOAT16:
+                                arm_gemm::Transform<2, 4, true, arm_gemm::VLType::SVE>(
+                                    reinterpret_cast<bfloat16 *>(_output->buffer()) + jump_rows,
+                                    reinterpret_cast<float *>(_input->buffer()), stride, k_start, k_end, 0, _xmax);
+                                break;
+                            default:
+                                ARM_COMPUTE_ERROR("Unsupported data type!");
+                        }
                         break;
                     }
 #endif /* ARM_COMPUTE_ENABLE_SVE */
@@ -175,7 +200,8 @@ Status NEReorderKernel::validate(const ITensorInfo        *input,
     ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     if (output->tensor_shape().total_size() != 0)
     {
-        ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(input, output);
+        ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() != DataType::F32);
+        ARM_COMPUTE_RETURN_ERROR_ON(output->data_type() != DataType::F32 && output->data_type() != DataType::BFLOAT16);
         ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_QUANTIZATION_INFO(input, output);
         // Only input WeightFormat OHWI supported
         ARM_COMPUTE_RETURN_ERROR_ON(input_wf != arm_compute::WeightFormat::OHWI);
@@ -208,13 +234,20 @@ Status NEReorderKernel::validate(const ITensorInfo        *input,
             }
         }
 
-        int ksize;
+        int ksize = 0;
         switch (output_wf)
         {
 #if defined(ARM_COMPUTE_ENABLE_SVE)
             case WeightFormat::OHWIo8:
             {
-                ksize = 8;
+                if (Scheduler::get().cpu_info().has_sve() && arm_gemm::utils::get_vector_length<float>() == 8)
+                {
+                    ksize = 8;
+                }
+                else
+                {
+                    ARM_COMPUTE_RETURN_ERROR_MSG("Unsupported weight format.");
+                }
                 break;
             }
 #endif /* ARM_COMPUTE_ENABLE_SVE */

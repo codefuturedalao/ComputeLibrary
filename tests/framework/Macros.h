@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021, 2023 Arm Limited.
+ * Copyright (c) 2017-2021, 2023-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_TEST_FRAMEWORK_MACROS
-#define ARM_COMPUTE_TEST_FRAMEWORK_MACROS
+#ifndef ACL_TESTS_FRAMEWORK_MACROS_H
+#define ACL_TESTS_FRAMEWORK_MACROS_H
 
 #include "Framework.h"
 #include "Registrars.h"
@@ -133,12 +133,16 @@
     void do_setup() override                                    \
     {                                                           \
         framework::Framework::get().set_new_fixture_call(true); \
-        apply(this, &FIXTURE::setup, _data);             \
-        configure_target();                                     \
-        if(!framework::Framework::get().configure_only())       \
+        apply(this, &FIXTURE::setup, _data);                    \
+                                                                \
+        if(!_skip_test)                                         \
         {                                                       \
-            allocate_and_run_target();                          \
-            compute_reference();                                \
+            configure_target();                                 \
+            if(!framework::Framework::get().configure_only())   \
+            {                                                   \
+                allocate_and_run_target();                      \
+                compute_reference();                            \
+            }                                                   \
         }                                                       \
     }
 #define FIXTURE_RUN(FIXTURE) \
@@ -211,17 +215,31 @@
 #define DISABLED_DATA_TEST_CASE(TEST_NAME, MODE, DATASET, ...) \
     DATA_TEST_CASE_IMPL(TEST_NAME, MODE, arm_compute::test::framework::TestCaseFactory::Status::DISABLED, DATASET, __VA_ARGS__)
 
+#define VALIDATION_FIXTURE_RUN()    \
+    void do_run() override          \
+    {                               \
+        if (_iteration != 0)        \
+        {                           \
+            do_setup();             \
+        }                           \
+        do_validate();              \
+        ++_iteration;               \
+    }
+
 #define FIXTURE_TEST_CASE_IMPL(TEST_NAME, FIXTURE, MODE, STATUS)                    \
     class TEST_NAME : public arm_compute::test::framework::TestCase, public FIXTURE \
     {                                                                               \
     public:                                                                     \
         TEST_CASE_CONSTRUCTOR(TEST_NAME)                                            \
         FIXTURE_SETUP(FIXTURE)                                                      \
-        void do_run() override;                                                     \
+        VALIDATION_FIXTURE_RUN()                                                    \
+        void do_validate();                                                         \
         FIXTURE_TEARDOWN(FIXTURE)                                                   \
+    private:                                                                        \
+        unsigned int _iteration {0};                                                \
     };                                                                              \
     TEST_REGISTRAR(TEST_NAME, MODE, STATUS);                                        \
-    void TEST_NAME::do_run()
+    void TEST_NAME::do_validate()
 
 #define FIXTURE_TEST_CASE(TEST_NAME, FIXTURE, MODE) \
     FIXTURE_TEST_CASE_IMPL(TEST_NAME, FIXTURE, MODE, arm_compute::test::framework::TestCaseFactory::Status::ACTIVE)
@@ -244,12 +262,15 @@
     public:                                                                                                                     \
         DATA_TEST_CASE_CONSTRUCTOR(TEST_NAME, DATASET)                                                                              \
         FIXTURE_DATA_SETUP(FIXTURE)                                                                                                 \
-        void do_run() override;                                                                                                     \
+        VALIDATION_FIXTURE_RUN() \
+        void do_validate();                                                                                                         \
         FIXTURE_TEARDOWN(FIXTURE)                                                                                                   \
+    private:                                                                                                                        \
+        unsigned int _iteration {0};                                                                                                \
     };                                                                                                                              \
     DATA_TEST_REGISTRAR(TEST_NAME, MODE, STATUS, DATASET);                                                                          \
     template <typename... As>                                                                                                       \
-    void TEST_NAME<std::tuple<As...>>::do_run()
+    void TEST_NAME<std::tuple<As...>>::do_validate()
 
 #define FIXTURE_DATA_TEST_CASE(TEST_NAME, FIXTURE, MODE, DATASET) \
     FIXTURE_DATA_TEST_CASE_IMPL(TEST_NAME, FIXTURE, MODE, arm_compute::test::framework::TestCaseFactory::Status::ACTIVE, DATASET)
@@ -267,12 +288,15 @@
     public:                                                                                                                     \
         DATA_TEST_CASE_CONSTRUCTOR(TEST_NAME, DATASET)                                                                              \
         FIXTURE_DATA_SETUP_NEW(FIXTURE)                                                                                             \
-        void do_run() override;                                                                                                     \
+        VALIDATION_FIXTURE_RUN()                                                                                                    \
+        void do_validate();                                                                                                         \
         FIXTURE_TEARDOWN(FIXTURE)                                                                                                   \
+    private:                                                                                                                        \
+        unsigned int _iteration {0};                                                                                                \
     };                                                                                                                              \
     DATA_TEST_REGISTRAR(TEST_NAME, MODE, STATUS, DATASET);                                                                          \
     template <typename... As>                                                                                                       \
-    void TEST_NAME<std::tuple<As...>>::do_run()
+    void TEST_NAME<std::tuple<As...>>::do_validate()
 
 #define FIXTURE_DATA_TEST_CASE_NEW(TEST_NAME, FIXTURE, MODE, DATASET) \
     FIXTURE_DATA_TEST_CASE_NEW_IMPL(TEST_NAME, FIXTURE, MODE, arm_compute::test::framework::TestCaseFactory::Status::ACTIVE, DATASET)
@@ -324,4 +348,4 @@
 //
 // TEST CASE MACROS END
 //
-#endif /* ARM_COMPUTE_TEST_FRAMEWORK_MACROS */
+#endif // ACL_TESTS_FRAMEWORK_MACROS_H

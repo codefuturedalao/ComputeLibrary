@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2017-2023 Arm Limited.
+# Copyright (c) 2017-2023, 2024 Arm Limited.
 #
 # SPDX-License-Identifier: MIT
 #
@@ -23,6 +23,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 import os.path
+import SCons
 
 Import('env')
 Import('vars')
@@ -81,19 +82,17 @@ if 'macos' in test_env['os']:
     load_whole_archive = '-Wl,-force_load'
     noload_whole_archive = ''
 
+if (env['multi_isa']):
+     test_env.Append(CPPDEFINES=['ARM_COMPUTE_ENABLE_BF16'])
+
 if env['os'] in ['android', 'macos', 'bare_metal'] or env['standalone']:
     Import("arm_compute_a")
-    Import("arm_compute_core_a")
     Import("arm_compute_graph_a")
-    if env['os']=='windows':
-        test_env.Append(LIBS = [arm_compute_graph_a, arm_compute_a])
-    else:
-        test_env.Append(LIBS = [arm_compute_graph_a, arm_compute_a, arm_compute_core_a])
+    test_env.Append(LIBS = [arm_compute_graph_a, arm_compute_a])
     arm_compute_lib = arm_compute_graph_a
 else:
     Import("arm_compute_graph_so")
-    Import("arm_compute_core_a")
-    test_env.Append(LIBS = ["arm_compute_graph", "arm_compute", "arm_compute_core"])
+    test_env.Append(LIBS = ["arm_compute_graph", "arm_compute"])
     arm_compute_lib = arm_compute_graph_so
 
 if env['os'] in ['bare_metal']:
@@ -158,6 +157,9 @@ if env['neon']:
         files_validation += Glob(env['external_tests_dir'] + '/tests/validation/NEON/' + filter_pattern)
     files_validation += Glob('validation/cpu/unit/*.cpp')
 
+    # Add wrapper tests
+    files_validation += Glob('validation/runtime/experimental/*/' + filter_pattern)
+
 extra_link_flags = []
 if env['os'] == 'android':
     test_env.Append(LIBS = ["log"])
@@ -189,9 +191,30 @@ if env['fixed_format_kernels'] and test_env['validation_tests']:
     test_env.Append(CPPDEFINES = ['ARM_COMPUTE_ENABLE_FIXED_FORMAT_KERNELS'])
 
 if test_env['validation_tests']:
-    arm_compute_validation_framework = env.StaticLibrary('arm_compute_validation_framework', Glob('validation/reference/*.cpp') + Glob('validation/*.cpp'), LINKFLAGS=test_env['LINKFLAGS'], CXXFLAGS=test_env['CXXFLAGS'], LIBS= [ arm_compute_test_framework, arm_compute_core_a])
+    #The following set up only works for posix system, RANLIBCOM env variable isn't available on win32 HOST_OS
+    if test_env['HOST_OS'] == 'posix':
+        #Set up to use temp file for long command when building and linking libraries
+        test_env['TEMPFILE'] = SCons.Platform.TempFileMunge
+
+        #To use temp file for any command, the following pattern should be used:
+        #   env['COMMAND'] = "{$TEMPFILE('$COMMANDSTRING')}"
+        #See: https://github.com/SCons/scons/blob/05f2992377844bbfec9bcd4a9c7f5479c634b91b/SCons/Platform/__init__.py#L147
+        #The commands' string are taken from https://github.com/SCons/scons
+        #The commands' explanations are taken from Scons userguide
+
+        #The command line used to compile C++ source file to an object files
+        test_env['CXXCOM'] = "${TEMPFILE('"+ test_env['CXXCOM'] + "')}"
+        #The command line used to generate a static library from object files
+        test_env['ARCOM'] = "${TEMPFILE('"+ test_env['ARCOM'] + "')}"
+        #The command line used to index a static library archive
+        test_env['RANLIBCOM'] = "${TEMPFILE('"+ test_env['RANLIBCOM'] + "')}"
+        #The command line used to link object files into an executable
+        test_env['LINKCOM'] = "${TEMPFILE('"+ test_env['LINKCOM'] + "')}"
+        #Set up directory for temp files. To prevent permission issue, the temp files are in the same directory with output files
+        test_env['TEMPFILEDIR'] = test_env['build_dir']
+
+    arm_compute_validation_framework = test_env.StaticLibrary('arm_compute_validation_framework', Glob('validation/reference/*.cpp') + Glob('validation/*.cpp'), LINKFLAGS=test_env['LINKFLAGS'], CXXFLAGS=test_env['CXXFLAGS'], LIBS= [ arm_compute_test_framework ])
     Depends(arm_compute_validation_framework , arm_compute_test_framework)
-    Depends(arm_compute_validation_framework , arm_compute_core_a)
 
     program_objects = files_validation + common_objects
     if test_env['os'] == 'bare_metal':

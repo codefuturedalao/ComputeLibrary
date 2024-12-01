@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021, 2023 Arm Limited.
+ * Copyright (c) 2018-2021, 2023-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_TEST_CAST_FIXTURE
-#define ARM_COMPUTE_TEST_CAST_FIXTURE
+#ifndef ACL_TESTS_VALIDATION_FIXTURES_CASTFIXTURE_H
+#define ACL_TESTS_VALIDATION_FIXTURES_CASTFIXTURE_H
 
 #include "tests/validation/fixtures/DepthConvertLayerFixture.h"
 
@@ -38,6 +38,12 @@ class CastValidationFixture : public framework::Fixture
 public:
     void setup(TensorShape shape, DataType dt_in, DataType dt_out, ConvertPolicy policy)
     {
+        if(std::is_same<TensorType, Tensor>::value &&  // Cpu
+            (dt_in == DataType::F16 || dt_out == DataType::F16) && !CPUInfo::get().has_fp16())
+        {
+            return;
+        }
+
         _target    = compute_target(shape, dt_in, dt_out, policy);
         _reference = compute_reference(shape, dt_in, dt_out, policy);
     }
@@ -59,6 +65,10 @@ protected:
                 case DataType::U8:
                 case DataType::QASYMM8:
                 case DataType::QASYMM8_SIGNED:
+                case DataType::QSYMM8:
+                case DataType::QSYMM8_PER_CHANNEL:
+                case DataType::QSYMM16:
+                case DataType::QASYMM16:
                 case DataType::S8:
                 case DataType::F32:
                 {
@@ -107,9 +117,13 @@ protected:
 
     TensorType compute_target(const TensorShape &shape, DataType dt_in, DataType dt_out, ConvertPolicy policy)
     {
+        // These are necessary but not used qinfo for creating tensor buffer for QSYMM8_PER_CHANNEL
+        QuantizationInfo src_not_used_qinfo(0.25f, 2);
+        QuantizationInfo dst_not_used_qinfo(0.5f, 2);
+
         // Create tensors
-        TensorType src = create_tensor<TensorType>(shape, dt_in, 1);
-        TensorType dst = create_tensor<TensorType>(shape, dt_out, 1);
+        TensorType src = create_tensor<TensorType>(shape, dt_in, 1, src_not_used_qinfo);
+        TensorType dst = create_tensor<TensorType>(shape, dt_out, 1, dst_not_used_qinfo);
 
         // Create and configure function
         FunctionType cast;
@@ -151,4 +165,4 @@ protected:
 } // namespace validation
 } // namespace test
 } // namespace arm_compute
-#endif /* ARM_COMPUTE_TEST_CAST_FIXTURE */
+#endif // ACL_TESTS_VALIDATION_FIXTURES_CASTFIXTURE_H

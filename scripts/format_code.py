@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) 2023 Arm Limited.
+# Copyright (c) 2023-2024 Arm Limited.
 #
 # SPDX-License-Identifier: MIT
 #
@@ -79,7 +79,7 @@ def check_copyright( filename ):
         start = 2
         if("SConscript" in filename):
             start = 3
-        m = re.match("(# Copyright \(c\) )(.*\d{4})( [Arm|ARM].*)", content[start])
+        m = re.match(r"(# Copyright \(c\) )(.*\d{4})( [Arm|ARM].*)", content[start])
         line = m.group(1)
 
         if m.group(2): # Is there a year already?
@@ -101,7 +101,7 @@ def check_copyright( filename ):
         return
 
     # This only works until year 9999
-    m = re.match("(.*Copyright \(c\) )(.*\d{4})( [Arm|ARM].*)", content[1])
+    m = re.match(r"(.*Copyright \(c\) )(.*\d{4})( [Arm|ARM].*)", content[1])
     start =len(ref)+2
     if content[0] != "/*\n" or not m:
         start = 0
@@ -142,20 +142,20 @@ def check_license(filename):
     f.close()
 
     f = open(filename, "w")
-    f.write("".join(content[:2]))
+    f.write("".join(content[:3]))
 
     year = datetime.datetime.now().year
     # This only works until year 9999
-    m = re.match("(.*Copyright \(c\) )(.*\d{4})( [Arm|ARM].*)", content[2])
+    m = re.match(r"(.*FileCopyrightText: )(.*\d{4})( [arm|Arm|ARM].*)", content[3])
 
     if not m:
-        f.write("Copyright (c) {} Arm Limited\n".format(year))
+        f.write("# SPDX-FileCopyrightText: {} Arm Limited\n#\n".format(year))
     else:
         updated_year = adjust_copyright_year(m.group(2), year)
-        f.write("Copyright (c) {} Arm Limited\n".format(updated_year))
+        f.write("# SPDX-FileCopyrightText: {} Arm Limited\n".format(updated_year))
 
     # Copy the rest of the file's content:
-    f.write("".join(content[3:]))
+    f.write("".join(content[4:]))
     f.close()
 
 
@@ -216,7 +216,7 @@ class FormatCodeRun:
         if strategy == "git-head":
             cmd = "git diff-tree --no-commit-id --name-status -r HEAD | grep \"^[AMRT]\" | cut -f 2"
         elif strategy == "git-diff":
-            cmd = "git diff --name-status --cached -r HEAD | grep \"^[AMRT]\" | cut -f 2"
+            cmd = "git diff --name-status --cached -r HEAD | grep \"^[AMRT]\" | rev | cut -f 1 | rev"
         else:
             cmd = "git ls-tree -r HEAD --name-only"
             # Skip copyright checks when running on all files because we don't know when they were last modified
@@ -262,6 +262,9 @@ class FormatCodeRun:
             self.shell.prepend_env("PATH","%s/../bin" % this_dir)
 
             for f in self.files:
+                if not self.skip_copyright:
+                    check_copyright(f)
+
                 skip_this_file = False
                 for e in exceptions:
                     if e in f:
@@ -272,10 +275,8 @@ class FormatCodeRun:
                     continue
 
                 logger.info("Formatting %s" % f)
-                if not self.skip_copyright:
-                    check_copyright(f)
 
-            check_license("LICENSE")
+            check_license("LICENSES/MIT.txt")
 
         except subprocess.CalledProcessError as e:
             retval = -1

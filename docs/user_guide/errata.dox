@@ -1,5 +1,5 @@
 ///
-/// Copyright (c) 2019-2023 Arm Limited.
+/// Copyright (c) 2019-2024 Arm Limited.
 ///
 /// SPDX-License-Identifier: MIT
 ///
@@ -29,6 +29,46 @@ namespace arm_compute
 @tableofcontents
 
 @section S7_1_errata Errata
+
+- (COMPMID-7536) NEDepthwiseConvolutionLayer and NEPoolingLayer may produce wrong results with OpenMP® scheduler
+    - Versions: >= v24.05 && < v24.08
+    - Oses: All
+    - Conditions:
+        - Compile for any architecture with openmp=1 neon=1 option
+        - Use NEDepthwiseConvolutionLayer and/or NEPoolingLayer with multiple threads
+        - Number of threads provided is greater than the number of required threads computed by the operator
+
+- (COMPMID-7191) Fix Memory violation in non-optimized Neon™ FP32 GeMM
+    - Versions: >= v17.09 && < v24.07
+    - Oses: Linux, Android, MacOS, Windows.
+    - Conditions:
+        - Compile the latest Arm Compute Library for armv8a
+        - RHS with batches
+
+- (COMPMID-7011) NELSTMLayer and CLSTMLayer crash when given a memory manager.
+    - Versions: >= v18.11 && < 24.07
+    - Oses: Linux, Android, MacOS, Windows.
+    - Conditions:
+        - Compile the latest Arm Compute Library for armv8a
+        - Use NELSTMLayer or CLLSTMLayer with a memory manager
+
+- (COMPMID-7109) Under certain conditions, Quantized GEMM may result in very few mismatches due to 16-bit accumulation overflow
+    - Versions: >= v17.09
+    - Oses: Linux, Android, MacOS, Windows.
+    - Conditions:
+        - Compile the latest Arm Compute Library for armv8a
+        - Device without dot product support
+        - In the matrix multiplication
+            - Lhs matrix must have -128 values eight positions apart from each other in its row
+            - Rhs matrix must have -128 values at the same positions as Lhs
+
+- (COMPMID-6904) Fix out-of-bound memory write for non-optimized FP16 GeMM kernel.
+    - Versions: >= v17.09 && < v24.06
+    - Oses: Linux, Android, MacOS, Windows.
+    - Conditions:
+        - Compile the latest Arm Compute Library for armv8.2-a or multi_isa
+        - Device with FP16 support
+        - GeMM with beta coefficient != 0 or 1
 
 - (COMPMID-6493) Crash when running Arm Compute Library compiled for SVE2 on a computer that support SVE only.
     - Versions: >= v21.02 && <=v23.08

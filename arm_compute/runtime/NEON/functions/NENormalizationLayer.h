@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021 Arm Limited.
+ * Copyright (c) 2017-2021, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,13 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_NENORMALIZATIONLAYER_H
-#define ARM_COMPUTE_NENORMALIZATIONLAYER_H
+#ifndef ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NENORMALIZATIONLAYER_H
+#define ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NENORMALIZATIONLAYER_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/IMemoryManager.h"
 #include "arm_compute/runtime/MemoryGroup.h"
+#include "arm_compute/runtime/MemoryManagerOnDemand.h"
 #include "arm_compute/runtime/NEON/functions/NEPixelWiseMultiplication.h"
 #include "arm_compute/runtime/Tensor.h"
 
@@ -41,15 +42,18 @@ class NENormalizationLayerKernel;
 /** Basic function to compute a normalization layer. This function calls the following kernels:
  *
  * -# @ref NEPixelWiseMultiplication
- * -# @ref NEFillBorderKernel
- * -# @ref NENormalizationLayerKernel
+ * -# NEFillBorderKernel
+ * -# NENormalizationLayerKernel
  *
  */
 class NENormalizationLayer : public IFunction
 {
 public:
     /** Default constructor */
-    NENormalizationLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    NENormalizationLayer(std::shared_ptr<IMemoryManager> memory_manager);
+    NENormalizationLayer() : NENormalizationLayer(MemoryManagerOnDemand::make_default())
+    {
+    }
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NENormalizationLayer(const NENormalizationLayer &) = delete;
     /** Prevent instances of this class from being copied (As this class contains pointers) */
@@ -100,4 +104,4 @@ private:
     Tensor _input_squared; /**< The intermediate buffer which stores results of squaring input */
 };
 } // namespace arm_compute
-#endif /* ARM_COMPUTE_NENORMALIZATIONLAYER_H */
+#endif // ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NENORMALIZATIONLAYER_H

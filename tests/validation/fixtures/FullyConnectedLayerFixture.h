@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Arm Limited.
+ * Copyright (c) 2017-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -92,6 +92,12 @@ public:
     void setup(TensorShape input_shape, TensorShape weights_shape, TensorShape bias_shape, TensorShape output_shape, bool transpose_weights, bool reshape_weights,
                DataType data_type, QuantizationInfo quantization_info, ActivationLayerInfo activation_info, bool mixed_layout = false)
     {
+        if(std::is_same<TensorType, Tensor>::value && // Cpu
+            data_type==DataType::F16 && !CPUInfo::get().has_fp16())
+        {
+            return;
+        }
+
         ARM_COMPUTE_UNUSED(weights_shape);
         ARM_COMPUTE_UNUSED(bias_shape);
 
@@ -414,7 +420,7 @@ private:
 
     void validate_with_tolerance(TensorType &target, SimpleTensor<int8_t> &ref)
     {
-        constexpr AbsoluteTolerance<uint32_t> tolerance_qasymm8_signed(1);
+        constexpr AbsoluteTolerance<int32_t> tolerance_qasymm8_signed(1);
         validate(AccessorType(target), ref, tolerance_qasymm8_signed);
     }
 
@@ -459,6 +465,12 @@ public:
     void setup(TensorShape src_shape, TensorShape weights_shape, TensorShape bias_shape, TensorShape dst_shape,
                DataType data_type, ActivationLayerInfo activation_info, bool constant_weights, bool constant_bias, bool weights_reshaped, bool remove_bias = false)
     {
+        if(std::is_same<TensorType, Tensor>::value && // Cpu
+            data_type==DataType::F16 && !CPUInfo::get().has_fp16())
+        {
+            return;
+        }
+
         _data_type = data_type;
 
         const bool     is_quantized   = is_data_type_quantized(data_type);

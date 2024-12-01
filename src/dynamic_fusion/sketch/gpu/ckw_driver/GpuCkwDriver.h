@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Arm Limited.
+ * Copyright (c) 2023-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,16 +21,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ACL_SRC_DYNAMIC_FUSION_SKETCH_GPU_CKW_DRIVER_GPUCKWDRIVER
-#define ACL_SRC_DYNAMIC_FUSION_SKETCH_GPU_CKW_DRIVER_GPUCKWDRIVER
-
-#include "ckw/Kernel.h"
+#ifndef ACL_SRC_DYNAMIC_FUSION_SKETCH_GPU_CKW_DRIVER_GPUCKWDRIVER_H
+#define ACL_SRC_DYNAMIC_FUSION_SKETCH_GPU_CKW_DRIVER_GPUCKWDRIVER_H
 
 #include "src/dynamic_fusion/sketch/gpu/GpuKernelArgument.h"
 #include "src/dynamic_fusion/sketch/gpu/GpuKernelComponentGroup.h"
 #include "src/dynamic_fusion/sketch/gpu/IGpuKernelWriter.h"
 
-#include <map>
+#include "compute_kernel_writer/include/ckw/Kernel.h"
+#include "compute_kernel_writer/include/ckw/KernelArgument.h"
 #include <string>
 
 namespace arm_compute
@@ -49,7 +48,7 @@ class GpuCkwDriver : public IGpuKernelWriter
 {
 public:
     /** Default constructor */
-    GpuCkwDriver() = default;
+    GpuCkwDriver() = delete;
     /** Constructor
      *
      * @param[in] components Kernel component group from which the kernel will be generated
@@ -69,13 +68,14 @@ public:
     GpuKernelArgumentList get_kernel_arguments() override;
 
 private:
-    GpuKernelComponentGroup _components{};
-    ckw::Kernel             _kernel;
-    std::string             _code;
+    GpuKernelComponentGroup          _components{};
+    std::string                      _kernel_name{};
+    std::vector<ckw::KernelArgument> _kernel_args{};
+    std::string                      _kernel_code{};
 };
 
 } // namespace dynamic_fusion
 } // namespace experimental
 } // namespace arm_compute
 
-#endif /* ACL_SRC_DYNAMIC_FUSION_SKETCH_GPU_CKW_DRIVER_GPUCKWDRIVER */
+#endif // ACL_SRC_DYNAMIC_FUSION_SKETCH_GPU_CKW_DRIVER_GPUCKWDRIVER_H

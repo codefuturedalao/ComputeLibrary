@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021, 2023 Arm Limited.
+ * Copyright (c) 2018-2021, 2023-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,11 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_NEARGMINMAXLAYER_H
-#define ARM_COMPUTE_NEARGMINMAXLAYER_H
+#ifndef ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEARGMINMAXLAYER_H
+#define ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEARGMINMAXLAYER_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/MemoryGroup.h"
+#include "arm_compute/runtime/MemoryManagerOnDemand.h"
 #include "arm_compute/runtime/NEON/INESimpleFunction.h"
 
 namespace arm_compute
@@ -36,8 +37,8 @@ class ITensor;
  *
  *  This function calls the following kernels:
  *
- * -# @ref NEReductionOperationKernel
- * -# @ref NEFillBorderKernel
+ * -# NEReductionOperationKernel
+ * -# NEFillBorderKernel
  *
  * @note The default data type for an uninitialized output tensor is
  *       signed 32-bit integer (S32). It is the user's responsibility to check
@@ -48,7 +49,10 @@ class NEArgMinMaxLayer : public IFunction
 {
 public:
     /** Constructor */
-    NEArgMinMaxLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    NEArgMinMaxLayer(std::shared_ptr<IMemoryManager> memory_manager);
+    NEArgMinMaxLayer() : NEArgMinMaxLayer(MemoryManagerOnDemand::make_default())
+    {
+    }
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEArgMinMaxLayer(const NEArgMinMaxLayer &) = delete;
     /** Prevent instances of this class from being copied (As this class contains pointers) */
@@ -98,4 +102,4 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute
-#endif /* ARM_COMPUTE_NEARGMINMAXLAYER_H */
+#endif // ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEARGMINMAXLAYER_H

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Arm Limited.
+ * Copyright (c) 2017-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,13 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef ARM_COMPUTE_NEGEMM_H
-#define ARM_COMPUTE_NEGEMM_H
+#ifndef ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEGEMM_H
+#define ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEGEMM_H
 
 #include "arm_compute/function_info/GEMMInfo.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/IMemoryManager.h"
 #include "arm_compute/runtime/IWeightsManager.h"
+#include "arm_compute/runtime/MemoryManagerOnDemand.h"
 
 #include <memory>
 
@@ -35,13 +36,16 @@ namespace arm_compute
 {
 /** Basic function to execute GEMM. This function calls the following kernels:
  *
- *  -# @ref cpu::CpuGemm
+ *  -# cpu::CpuGemm
  */
 class NEGEMM : public IFunction
 {
 public:
     /** Constructor */
-    NEGEMM(std::shared_ptr<IMemoryManager> memory_manager = nullptr, IWeightsManager *weights_manager = nullptr);
+    NEGEMM(std::shared_ptr<IMemoryManager> memory_manager, IWeightsManager *weights_manager = nullptr);
+    NEGEMM() : NEGEMM(MemoryManagerOnDemand::make_default())
+    {
+    }
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEGEMM(const NEGEMM &) = delete;
     /** Default move constructor */
@@ -123,4 +127,4 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute
-#endif /*ARM_COMPUTE_NEGEMM_H */
+#endif // ACL_ARM_COMPUTE_RUNTIME_NEON_FUNCTIONS_NEGEMM_H

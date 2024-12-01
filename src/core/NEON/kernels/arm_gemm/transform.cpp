@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2023 Arm Limited.
+ * Copyright (c) 2021-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -129,12 +129,19 @@ void Transform(
 // We don't have assembler transforms for AArch32, generate templated ones here.
 #ifdef __arm__
 template void Transform<8, 1, true, VLType::None>(float *, const float *, int, int, int, int, int);
-#if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
+#if defined(ARM_COMPUTE_ENABLE_FP16)
 template void Transform<8, 1, true, VLType::None>(float *, const __fp16 *, int, int, int, int, int);
-#endif // defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
+#endif // defined(ARM_COMPUTE_ENABLE_FP16)
 #ifdef ARM_COMPUTE_ENABLE_BF16
 template void Transform<8, 1, true, VLType::None>(float *, const bfloat16 *, int, int, int, int, int);
-#endif
+#endif // ARM_COMPUTE_ENABLE_BF16
 #endif // AArch32
+
+#if defined(ARM_COMPUTE_ENABLE_FP16)
+template void Transform<12, 1, false, VLType::None>(float *, const __fp16 *, int, int, int, int, int);
+#endif // defined(ARM_COMPUTE_ENABLE_FP16)
+#ifdef ARM_COMPUTE_ENABLE_BF16
+template void Transform<12, 1, false, VLType::None>(float *, const bfloat16 *, int, int, int, int, int);
+#endif // ARM_COMPUTE_ENABLE_BF16
 
 } // namespace arm_gemm

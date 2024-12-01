@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021 Arm Limited.
+ * Copyright (c) 2017-2021, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -42,7 +42,7 @@ namespace arm_gemm {
 
 // Implementation of the GemmCommon abstract class.
 template<typename strategy, typename To, typename Tr>
-class GemmHybridQuantized : public GemmCommon<To, Tr> {
+class GemmHybridQuantized : public GemmCommon<To, To, Tr> {
     typedef typename strategy::operand_type Toi;
     typedef typename strategy::result_type Tri;
 
@@ -277,7 +277,9 @@ public:
         }
     }
 
-    void pretranspose_B_array(void *in_buffer, const To *B, const int ldb, const int B_multi_stride) override {
+    void pretranspose_B_array(void *in_buffer, const To *B, const int ldb, const int B_multi_stride, bool transposed) override {
+        assert(!transposed);
+
         requantize_bias(in_buffer, B, ldb, B_multi_stride);
 
         uintptr_t buffer_int = reinterpret_cast<uintptr_t>(in_buffer);
@@ -296,7 +298,7 @@ public:
                     const unsigned int size = roundup(xmax-x0, strategy::out_width()) * k_size;
 
                     strat.transforms.PrepareB( buffer, B + (multi * B_multi_stride), ldb,
-                                               x0, xmax, k0, kmax);
+                                               x0, xmax, k0, kmax, false);
 
                     buffer += size;
                 }
@@ -324,6 +326,22 @@ public:
         c.filter = get_type_name<strategy>();
 
         return c;
+    }
+
+    void update_quantization_parameters(const Requantize32 &re) override {
+        _qp.bias = re.bias;
+        _qp.a_offset = re.a_offset;
+        _qp.b_offset = re.b_offset;
+        _qp.c_offset = re.c_offset;
+        _qp.per_layer_left_shift = re.per_layer_left_shift;
+        _qp.per_layer_right_shift = re.per_layer_right_shift;
+        _qp.per_layer_mul = re.per_layer_mul;
+        _qp.per_channel_requant = re.per_channel_requant;
+        _qp.per_channel_left_shifts = re.per_channel_left_shifts;
+        _qp.per_channel_right_shifts = re.per_channel_right_shifts;
+        _qp.per_channel_muls = re.per_channel_muls;
+        _qp.minval = re.minval;
+        _qp.maxval = re.maxval;
     }
 };
 

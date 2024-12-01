@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2023 Arm Limited.
+ * Copyright (c) 2021-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,6 +29,7 @@
 #include "support/StringSupport.h"
 #include "support/ToolchainSupport.h"
 
+#include <map>
 #include <sstream>
 
 #if !defined(BARE_METAL)
@@ -38,6 +39,12 @@
 #if !defined(_WIN64)
 #include <regex.h> /* C++ std::regex takes up a lot of space in the standalone builds */
 #include <sched.h>
+#else  /*  !defined(_WIN64) */
+// clang-format off
+#include <windows.h>
+#include <sysinfoapi.h>
+#include <processthreadsapi.h>
+// clang-format on
 #endif /* !defined(_WIN64) */
 
 #include <thread>
@@ -269,6 +276,46 @@ int get_max_cpus()
     }
     return max_cpus;
 }
+#if defined(__ANDROID__)
+std::vector<uint32_t> get_cpu_capacities()
+{
+    std::vector<uint32_t> cpu_capacities;
+    for (int i = 0; i < get_max_cpus(); ++i)
+    {
+        std::stringstream str;
+        str << "/sys/devices/system/cpu/cpu" << i << "/cpu_capacity";
+        std::ifstream file(str.str(), std::ios::in);
+        if (file.is_open())
+        {
+            std::string line;
+            if (bool(getline(file, line)))
+            {
+                cpu_capacities.emplace_back(support::cpp11::stoul(line));
+            }
+        }
+    }
+
+    return cpu_capacities;
+}
+
+uint32_t not_little_num_cpus_internal()
+{
+    std::vector<uint32_t> cpus_all = get_cpu_capacities();
+    std::vector<uint32_t> cpus_not_little;
+
+    std::vector<uint32_t>::iterator result       = std::max_element(cpus_all.begin(), cpus_all.end());
+    uint32_t                        max_capacity = *result;
+    uint32_t                        threshold    = max_capacity / 2;
+    for (unsigned int i = 0; i < cpus_all.size(); i++)
+    {
+        if (!(cpus_all[i] < threshold))
+        {
+            cpus_not_little.emplace_back(cpus_all[i]);
+        }
+    }
+    return cpus_not_little.size();
+}
+#endif /* defined(__ANDROID__) */
 #elif defined(__aarch64__) && \
     defined(__APPLE__) /* !defined(BARE_METAL) && !defined(__APPLE__) && (defined(__arm__) || defined(__aarch64__)) */
 /** Query features through sysctlbyname
@@ -363,9 +410,27 @@ CpuInfo CpuInfo::build()
     isainfo.neon = get_hw_capability("hw.optional.neon");
     isainfo.fp16 = get_hw_capability("hw.optional.neon_fp16");
     isainfo.dot  = get_hw_capability("hw.optional.arm.FEAT_DotProd");
+    isainfo.bf16 = get_hw_capability("hw.optional.arm.FEAT_BF16");
+    isainfo.i8mm = get_hw_capability("hw.optional.arm.FEAT_I8MM");
     CpuInfo info(isainfo, cpus_model);
     return info;
-#else                                            /* #elif defined(__aarch64__) && defined(__APPLE__) */
+#elif defined(__aarch64__) && defined(_WIN64)    /* #elif defined(__aarch64__) && defined(__APPLE__) */
+    CpuIsaInfo isainfo;
+    isainfo.neon = true;
+    isainfo.dot  = IsProcessorFeaturePresent(PF_ARM_V82_DP_INSTRUCTIONS_AVAILABLE);
+    if (NTDDI_VERSION >= NTDDI_WIN11_GE)
+    {
+        isainfo.fp16 = IsProcessorFeaturePresent(PF_ARM_SVE_INSTRUCTIONS_AVAILABLE);
+        isainfo.sve  = IsProcessorFeaturePresent(PF_ARM_SVE_INSTRUCTIONS_AVAILABLE);
+        isainfo.i8mm = IsProcessorFeaturePresent(PF_ARM_SVE_I8MM_INSTRUCTIONS_AVAILABLE);
+    }
+    SYSTEM_INFO sysinfo;
+    GetSystemInfo(&sysinfo);
+    const int             ncpus = sysinfo.dwNumberOfProcessors;
+    std::vector<CpuModel> cpus_model(ncpus);
+    CpuInfo               info(isainfo, cpus_model);
+    return info;
+#else                                            /* #elif defined(__aarch64__) && defined(_WIN64) */
     CpuInfo info(CpuIsaInfo(), {CpuModel::GENERIC});
     return info;
 #endif /* !defined(BARE_METAL) && !defined(__APPLE__) && !defined(__OpenBSD__) && (defined(__arm__) || defined(__aarch64__)) */
@@ -394,6 +459,15 @@ CpuModel CpuInfo::cpu_model() const
 uint32_t CpuInfo::num_cpus() const
 {
     return _cpus.size();
+}
+
+uint32_t CpuInfo::not_little_num_cpus() const
+{
+#if defined(__ANDROID__)
+    return not_little_num_cpus_internal();
+#else  /* defined(__ANDROID__) */
+    return num_cpus();
+#endif /* defined(__ANDROID__) */
 }
 
 uint32_t num_threads_hint()

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021 Arm Limited.
+ * Copyright (c) 2017-2021, 2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -34,6 +34,8 @@
 #include "tests/validation/Validation.h"
 #include "tests/validation/fixtures/QuantizationLayerFixture.h"
 
+#include <vector>
+
 namespace arm_compute
 {
 namespace test
@@ -43,8 +45,11 @@ namespace validation
 namespace
 {
 /** Tolerance for quantization */
+/// @note: We do not expect any difference between our reference and target implementations for UInt8 and Int8
 constexpr AbsoluteTolerance<uint8_t>  tolerance_u8(1);  /**< Tolerance value for comparing reference's output against implementation's output for QASYMM8 data types */
 constexpr AbsoluteTolerance<int8_t>   tolerance_s8(1);  /**< Tolerance value for comparing reference's output against implementation's output for QASYMM8_SIGNED data types */
+constexpr AbsoluteTolerance<int8_t>   zero_tolerance_s8(0);
+
 constexpr AbsoluteTolerance<uint16_t> tolerance_u16(1); /**< Tolerance value for comparing reference's output against implementation's output for QASYMM16 data types */
 const auto                            QuantizationSmallShapes = concat(datasets::Small3DShapes(), datasets::Small4DShapes());
 const auto                            QuantizationLargeShapes = concat(datasets::Large3DShapes(), datasets::Large4DShapes());
@@ -52,6 +57,38 @@ const auto                            QuantizationLargeShapes = concat(datasets:
 
 TEST_SUITE(NEON)
 TEST_SUITE(QuantizationLayer)
+
+TEST_CASE(ProperlyRoundedRequantization, framework::DatasetMode::ALL)
+{
+    // The test case here covers both Int8 and UInt8 because the underlying kernel is the same
+    const auto shape = TensorShape(18U); // > 16 for channel dim. to stress vector and leftover loops
+    const auto dtype = DataType::QASYMM8_SIGNED;
+    const auto in_qinfo = QuantizationInfo(0.5f, -1);
+    const auto out_qinfo = QuantizationInfo(1.f, -1);
+
+    Tensor input = create_tensor<Tensor>(shape, dtype, 1, in_qinfo);
+    Tensor output = create_tensor<Tensor>(shape, dtype, 1, out_qinfo);
+
+    NEQuantizationLayer quant_layer;
+    quant_layer.configure(&input, &output);
+
+    input.allocator()->allocate();
+    output.allocator()->allocate();
+
+    std::vector<int8_t> values =   {1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35};
+    std::vector<int8_t> expected = {0,1,2,3,4,5 ,6 ,7 ,8 ,9 ,10,11,12,13,14,15,16,17}; // (x + 1)/2 - 1
+
+    SimpleTensor<int8_t> ref {shape, dtype, 1, out_qinfo};
+
+    ARM_COMPUTE_EXPECT(values.size() == shape.x(), framework::LogLevel::ERRORS);
+
+    library->fill_static_values(Accessor(input), values);
+    library->fill_static_values(ref, expected);
+
+    quant_layer.run();
+
+    validate(Accessor(output), ref, zero_tolerance_s8);
+}
 
 // *INDENT-OFF*
 // clang-format off
@@ -124,50 +161,90 @@ FIXTURE_DATA_TEST_CASE(RunLargeQASYMM16, NEQuantizationLayerQASYMM16Fixture<floa
     validate(Accessor(_target), _reference, tolerance_u16);
 }
 TEST_SUITE_END() // FP32
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#ifdef ARM_COMPUTE_ENABLE_FP16
 TEST_SUITE(FP16)
 FIXTURE_DATA_TEST_CASE(RunSmallQASYMM8, NEQuantizationLayerQASYMM8Fixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(QuantizationSmallShapes,
                        framework::dataset::make("DataType", DataType::F16)),
                        framework::dataset::make("DataTypeOut", { DataType::QASYMM8 })),
                        framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.5f, 10) })))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_u8);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_u8);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 FIXTURE_DATA_TEST_CASE(RunSmallQASYMM8Signed, NEQuantizationLayerQASYMM8SignedFixture<half>, framework::DatasetMode::ALL, combine(combine(combine(QuantizationSmallShapes,
                        framework::dataset::make("DataType", DataType::F16)),
                        framework::dataset::make("DataTypeOut", { DataType::QASYMM8_SIGNED })),
                        framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.5f, 10) })))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_s8);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_s8);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 FIXTURE_DATA_TEST_CASE(RunSmallQASYMM16, NEQuantizationLayerQASYMM16Fixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(QuantizationSmallShapes,
                        framework::dataset::make("DataType", DataType::F16)),
                        framework::dataset::make("DataTypeOut", { DataType::QASYMM16 })),
                        framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.5f, 10) })))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_u16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_u16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 FIXTURE_DATA_TEST_CASE(RunLargeQASYMM8, NEQuantizationLayerQASYMM8Fixture<half>, framework::DatasetMode::NIGHTLY, combine(combine(combine(QuantizationLargeShapes,
                        framework::dataset::make("DataType", DataType::F16)),
                        framework::dataset::make("DataTypeOut", { DataType::QASYMM8 })),
                        framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.5f, 10) })))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_u8);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_u8);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 FIXTURE_DATA_TEST_CASE(RunLargeQASYMM16, NEQuantizationLayerQASYMM16Fixture<half>, framework::DatasetMode::NIGHTLY, combine(combine(combine(QuantizationLargeShapes,
                        framework::dataset::make("DataType", DataType::F16)),
                        framework::dataset::make("DataTypeOut", { DataType::QASYMM16 })),
                        framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.5f, 10) })))
 {
-    // Validate output
-    validate(Accessor(_target), _reference, tolerance_u16);
+    if(CPUInfo::get().has_fp16())
+    {
+        // Validate output
+        validate(Accessor(_target), _reference, tolerance_u16);
+    }
+    else
+    {
+        ARM_COMPUTE_TEST_INFO("Device does not support fp16 vector operations. Test SKIPPED.");
+        framework::ARM_COMPUTE_PRINT_INFO();
+    }
 }
 TEST_SUITE_END() // FP16
-#endif           //  __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+#endif           //  ARM_COMPUTE_ENABLE_FP16
 TEST_SUITE_END() // Float
 
 TEST_SUITE(Quantized)
@@ -182,7 +259,16 @@ FIXTURE_DATA_TEST_CASE(RunSmallQASYMM8, NEQuantizationLayerQASYMM8GenFixture<uin
                        framework::dataset::make("DataType", DataType::QASYMM8)),
                        framework::dataset::make("DataTypeOut", { DataType::QASYMM8 })),
                        framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(0.5f, 10) })),
-                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(2.0f, 15) })))
+                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(2.0f, 15), QuantizationInfo(0.5f, 25) })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_u8);
+}
+FIXTURE_DATA_TEST_CASE(ConvertUint8toInt8, NEQuantizationLayerQASYMM8GenFixture<uint8_t>, framework::DatasetMode::ALL, combine(combine(combine(combine(QuantizationSmallShapes,
+                       framework::dataset::make("DataType", DataType::QASYMM8)),
+                       framework::dataset::make("DataTypeOut", { DataType::QASYMM8_SIGNED })),
+                       framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(2.0f, -1) })),
+                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(2.0f, 127) })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_u8);
@@ -191,7 +277,7 @@ FIXTURE_DATA_TEST_CASE(RunSmallQASYMM8_SIGNED, NEQuantizationLayerQASYMM8_SIGNED
                        framework::dataset::make("DataTypeIn", DataType::QASYMM8)),
                        framework::dataset::make("DataTypeOut", { DataType::QASYMM8_SIGNED })),
                        framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.0f, 10), QuantizationInfo(2.0f, -25) })),
-                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.0f, 15) })))
+                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.0f, 15), QuantizationInfo(1.0f, 127) })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_s8);
@@ -211,7 +297,7 @@ FIXTURE_DATA_TEST_CASE(RunSmallQASYMM8_SIGNED, NEQuantizationLayerQASYMM8_SIGNED
                        framework::dataset::make("DataTypeIn", DataType::QASYMM8_SIGNED)),
                        framework::dataset::make("DataTypeOut", { DataType::QASYMM8_SIGNED })),
                        framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.0f, 10) })),
-                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(2.0f, -5) })))
+                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(2.0f, -5), QuantizationInfo(1.0f, 43) })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_s8);
@@ -220,11 +306,21 @@ FIXTURE_DATA_TEST_CASE(RunSmallQASYMM8, NEQuantizationLayerQASYMM8GenFixture<int
                        framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
                        framework::dataset::make("DataTypeOut", { DataType::QASYMM8 })),
                        framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(2.0f, 10), QuantizationInfo(2.0f, -25) })),
-                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.0f, 30) })))
+                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.0f, 30), QuantizationInfo(2.0f, -128) })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_u8);
 }
+FIXTURE_DATA_TEST_CASE(ConvertInt8toUint8, NEQuantizationLayerQASYMM8_SIGNEDGenFixture<int8_t>, framework::DatasetMode::ALL, combine(combine(combine(combine(QuantizationSmallShapes,
+                       framework::dataset::make("DataTypeIn", DataType::QASYMM8_SIGNED)),
+                       framework::dataset::make("DataTypeOut", { DataType::QASYMM8 })),
+                       framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.0f, 0) })),
+                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.0f, -128) })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_s8);
+}
+
 TEST_SUITE_END() // QASYMM8_SIGNED
 TEST_SUITE_END() // Quantized
 

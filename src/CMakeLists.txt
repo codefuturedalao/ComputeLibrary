@@ -1,4 +1,4 @@
-# Copyright (c) 2023 Arm Limited.
+# Copyright (c) 2023-2024 Arm Limited.
 #
 # SPDX-License-Identifier: MIT
 #
@@ -221,6 +221,7 @@ target_sources(
 	core/NEON/kernels/arm_conv/pooling/kernels/sve_u8q_nhwc_max_generic_depthfirst/generic.cpp
 	core/NEON/kernels/arm_gemm/interleave_indirect-sve.cpp
 	core/NEON/kernels/arm_gemm/kernels/sme2_gemv_bf16fp32_dot_16VL/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/sme2_gemv_fp16_mla_16VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sme2_gemv_fp16fp32fp16_dot_16VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sme2_gemv_fp32_mla_16VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sme2_gemv_fp32bf16fp32_dot_16VL/generic.cpp
@@ -238,6 +239,9 @@ target_sources(
 	core/NEON/kernels/arm_gemm/kernels/sme2_interleaved_nomerge_s8q_mopa_1VLx4VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sme2_interleaved_nomerge_s8q_mopa_2VLx2VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sme2_interleaved_nomerge_s8q_mopa_4VLx1VL/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/sme2_interleaved_nomerge_s8qfp32_mopa_1VLx4VL/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/sme2_interleaved_nomerge_s8qfp32_mopa_2VLx2VL/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/sme2_interleaved_nomerge_s8qfp32_mopa_4VLx1VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sme2_interleaved_nomerge_s8s32_mopa_1VLx4VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sme2_interleaved_nomerge_s8s32_mopa_2VLx2VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sme2_interleaved_nomerge_s8s32_mopa_4VLx1VL/generic.cpp
@@ -250,6 +254,7 @@ target_sources(
 	core/NEON/kernels/arm_gemm/kernels/sve_ffhybrid_fp32_mla_6x4VL/a64fx.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_ffhybrid_fp32_mla_6x4VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_ffhybrid_fp32bf16fp32_mmla_4x6VL/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/sve_ffinterleaved_bf16fp32_dot_8x3VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_ffinterleaved_bf16fp32_mmla_8x3VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_ffinterleaved_fp16_mla_8x3VL/a64fx.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_ffinterleaved_fp16_mla_8x3VL/generic.cpp
@@ -274,6 +279,9 @@ target_sources(
 	core/NEON/kernels/arm_gemm/kernels/sve_hybrid_s8s32_mmla_6x4VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_hybrid_u8qa_dot_4x4VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_hybrid_u8qa_mmla_4x4VL/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/sve_hybrid_u8s8qa_dot_4x4VL/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/sve_hybrid_u8s8qa_mmla_4x4VL/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/sve_hybrid_u8s8s32_mmla_6x4VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_hybrid_u8u32_dot_6x4VL/a64fx.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_hybrid_u8u32_dot_6x4VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_hybrid_u8u32_mmla_6x4VL/generic.cpp
@@ -287,6 +295,7 @@ target_sources(
 	core/NEON/kernels/arm_gemm/kernels/sve_interleaved_s8s32_dot_8x3VL/a64fx.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_interleaved_s8s32_dot_8x3VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_interleaved_s8s32_mmla_8x3VL/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/sve_interleaved_u8s8s32_mmla_8x3VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_interleaved_u8u32_dot_8x3VL/a64fx.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_interleaved_u8u32_dot_8x3VL/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/sve_interleaved_u8u32_mmla_8x3VL/generic.cpp
@@ -312,16 +321,14 @@ target_sources(
 	cpu/kernels/elementwise_unary/generic/sve/fp32.cpp
 	cpu/kernels/elementwise_unary/generic/sve/impl.cpp
 	cpu/kernels/elementwise_unary/generic/sve/integer.cpp
+	cpu/kernels/lut/generic/sve/u16.cpp
 	cpu/kernels/scale/sve/fp16.cpp
 	cpu/kernels/scale/sve/fp32.cpp
 	cpu/kernels/scale/sve/integer.cpp
 	cpu/kernels/scale/sve/qasymm8.cpp
 	cpu/kernels/scale/sve/qasymm8_signed.cpp
-	cpu/kernels/softmax/generic/sve/fp16.cpp
-	cpu/kernels/softmax/generic/sve/fp32.cpp
 	cpu/kernels/softmax/generic/sve/impl.cpp
-	cpu/kernels/softmax/generic/sve/qasymm8.cpp
-	cpu/kernels/softmax/generic/sve/qasymm8_signed.cpp
+	cpu/kernels/softmax/generic/sve/impl_bf16.cpp
 )
 
 target_sources(
@@ -331,16 +338,22 @@ target_sources(
 	cpu/kernels/activation/generic/sve2/qasymm8.cpp
 	cpu/kernels/activation/generic/sve2/qasymm8_signed.cpp
 	cpu/kernels/activation/generic/sve2/qsymm16.cpp
+	cpu/kernels/add/generic/sme2/impl.cpp
+	cpu/kernels/add/generic/sme2/qasymm8_signed.cpp
 	cpu/kernels/add/generic/sve2/qasymm8.cpp
 	cpu/kernels/add/generic/sve2/qasymm8_signed.cpp
 	cpu/kernels/add/generic/sve2/qsymm16.cpp
 	cpu/kernels/elementwise_binary/generic/sve2/qasymm8.cpp
 	cpu/kernels/elementwise_binary/generic/sve2/qasymm8_signed.cpp
 	cpu/kernels/elementwise_unary/generic/sve2/q8.cpp
+	cpu/kernels/logistic/generic/sme2/fp32.cpp
 	cpu/kernels/lut/generic/sve2/u8.cpp
+	cpu/kernels/mul/generic/sme2/qasymm8_signed.cpp
+	cpu/kernels/softmax/generic/sme2/fp16.cpp
+	cpu/kernels/softmax/generic/sme2/fp32.cpp
+	cpu/kernels/softmax/generic/sme2/qasymm8.cpp
+	cpu/kernels/softmax/generic/sme2/qasymm8_signed.cpp
 	cpu/kernels/softmax/generic/sve2/impl.cpp
-	cpu/kernels/softmax/generic/sve2/qasymm8.cpp
-	cpu/kernels/softmax/generic/sve2/qasymm8_signed.cpp
 )
 
 target_sources(
@@ -505,19 +518,25 @@ target_sources(
 	core/NEON/kernels/arm_conv/pooling/pooling_u8.cpp
 	core/NEON/kernels/arm_conv/pooling/pooling_u8q.cpp
 	core/NEON/kernels/arm_gemm/gemm_bf16.cpp
+	core/NEON/kernels/arm_gemm/gemm_bf16bf16.cpp
 	core/NEON/kernels/arm_gemm/gemm_fp16.cpp
 	core/NEON/kernels/arm_gemm/gemm_fp32.cpp
 	core/NEON/kernels/arm_gemm/gemm_int16.cpp
 	core/NEON/kernels/arm_gemm/gemm_int8.cpp
+	core/NEON/kernels/arm_gemm/gemm_q8_mixed.cpp
 	core/NEON/kernels/arm_gemm/gemm_qint8.cpp
 	core/NEON/kernels/arm_gemm/gemm_quint8.cpp
+	core/NEON/kernels/arm_gemm/gemm_s8fp32.cpp
+	core/NEON/kernels/arm_gemm/gemm_u8s8fp32.cpp
 	core/NEON/kernels/arm_gemm/gemm_uint16.cpp
 	core/NEON/kernels/arm_gemm/gemm_uint8.cpp
+	core/NEON/kernels/arm_gemm/interleave-8way.cpp
 	core/NEON/kernels/arm_gemm/interleave_indirect.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_ffhybrid_bf16fp32_mmla_6x16/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_ffhybrid_fp16_mla_6x32/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_ffhybrid_fp32_mla_6x16/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_ffhybrid_fp32bf16fp32_mmla_4x24/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/a64_ffhybrid_fp32bf16fp32_mmla_6x16/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_ffinterleaved_bf16fp32_dot_8x12/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_ffinterleaved_bf16fp32_mmla_8x12/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_ffinterleaved_fp16_mla_8x24/generic.cpp
@@ -559,6 +578,10 @@ target_sources(
 	core/NEON/kernels/arm_gemm/kernels/a64_hybrid_u8qa_dot_4x16/a55.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_hybrid_u8qa_dot_4x16/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_hybrid_u8qa_mmla_4x16/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/a64_hybrid_u8s8qa_dot_4x16/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/a64_hybrid_u8s8qa_mmla_4x16/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/a64_hybrid_u8s8s32_dot_6x16/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/a64_hybrid_u8s8s32_mmla_6x16/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_hybrid_u8u32_dot_6x16/a55.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_hybrid_u8u32_dot_6x16/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_hybrid_u8u32_mmla_6x16/generic.cpp
@@ -568,6 +591,7 @@ target_sources(
 	core/NEON/kernels/arm_gemm/kernels/a64_interleaved_bf16fp32_mmla_8x12/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_interleaved_s8s32_mmla_8x12/a510.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_interleaved_s8s32_mmla_8x12/generic.cpp
+	core/NEON/kernels/arm_gemm/kernels/a64_interleaved_u8s8s32_mmla_8x12/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_interleaved_u8u32_mmla_8x12/a510.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_interleaved_u8u32_mmla_8x12/generic.cpp
 	core/NEON/kernels/arm_gemm/kernels/a64_sgemm_8x12/a53.cpp
@@ -634,6 +658,7 @@ target_sources(
 	core/Utils.cpp
 	core/Validate.cpp
 	core/Version.cpp
+	core/helpers/LUTManager.cpp
 	core/helpers/SoftmaxHelpers.cpp
 	core/helpers/Utils.cpp
 	core/helpers/WindowHelpers.cpp
@@ -700,6 +725,7 @@ target_sources(
 	cpu/kernels/CpuQuantizeKernel.cpp
 	cpu/kernels/CpuReshapeKernel.cpp
 	cpu/kernels/CpuScaleKernel.cpp
+	cpu/kernels/CpuScatterKernel.cpp
 	cpu/kernels/CpuSoftmaxKernel.cpp
 	cpu/kernels/CpuSubKernel.cpp
 	cpu/kernels/CpuTransposeKernel.cpp
@@ -711,6 +737,7 @@ target_sources(
 	cpu/kernels/activation/generic/neon/qasymm8.cpp
 	cpu/kernels/activation/generic/neon/qasymm8_signed.cpp
 	cpu/kernels/activation/generic/neon/qsymm16.cpp
+	cpu/kernels/activation/heuristics/CpuActivationKernelHeuristics.cpp
 	cpu/kernels/add/generic/neon/fp16.cpp
 	cpu/kernels/add/generic/neon/fp32.cpp
 	cpu/kernels/add/generic/neon/impl.cpp
@@ -727,20 +754,32 @@ target_sources(
 	cpu/kernels/boundingboxtransform/generic/neon/impl.cpp
 	cpu/kernels/boundingboxtransform/generic/neon/qsymm16.cpp
 	cpu/kernels/cast/generic/neon/fp16.cpp
+	cpu/kernels/conv3d/generic/neon/fp16.cpp
+	cpu/kernels/conv3d/generic/neon/fp32.cpp
+	cpu/kernels/conv3d/generic/neon/qasymm8.cpp
+	cpu/kernels/conv3d/generic/neon/qasymm8_signed.cpp
 	cpu/kernels/crop/generic/neon/fp16.cpp
 	cpu/kernels/crop/generic/neon/fp32.cpp
 	cpu/kernels/crop/generic/neon/integer.cpp
+	cpu/kernels/depth_to_space/nchw/any/impl.cpp
+	cpu/kernels/depth_to_space/nhwc/any/impl.cpp
 	cpu/kernels/depthwiseconv2d/generic/neon/fp16.cpp
 	cpu/kernels/depthwiseconv2d/generic/neon/fp32.cpp
 	cpu/kernels/depthwiseconv2d/generic/neon/impl.cpp
 	cpu/kernels/depthwiseconv2d/generic/neon/qasymm8.cpp
 	cpu/kernels/depthwiseconv2d/generic/neon/qasymm8_signed.cpp
+	cpu/kernels/dequantize/generic/neon/fp16.cpp
+	cpu/kernels/dequantize/generic/neon/fp32.cpp
 	cpu/kernels/directconv2d/nchw/all.cpp
 	cpu/kernels/directconv2d/nchw/fp16.cpp
 	cpu/kernels/directconv2d/nhwc/neon/fp16.cpp
 	cpu/kernels/directconv2d/nhwc/neon/fp32.cpp
 	cpu/kernels/directconv2d/nhwc/neon/impl.cpp
 	cpu/kernels/directconv2d/nhwc/neon/qasymm8.cpp
+	cpu/kernels/directconv2d_output_stage/generic/neon/fp16.cpp
+	cpu/kernels/directconv2d_output_stage/generic/neon/fp32.cpp
+	cpu/kernels/directconv2d_output_stage/generic/neon/qasymm8.cpp
+	cpu/kernels/directconv2d_output_stage/generic/neon/qasymm8_signed.cpp
 	cpu/kernels/elementwise_binary/generic/neon/fp16.cpp
 	cpu/kernels/elementwise_binary/generic/neon/fp32.cpp
 	cpu/kernels/elementwise_binary/generic/neon/integer.cpp
@@ -757,6 +796,8 @@ target_sources(
 	cpu/kernels/fuse_batch_normalization/generic/fp16.cpp
 	cpu/kernels/fuse_batch_normalization/generic/fp32.cpp
 	cpu/kernels/fuse_batch_normalization/nchw/all.cpp
+	cpu/kernels/fuse_batch_normalization/nchw/neon/fp16.cpp
+	cpu/kernels/fuse_batch_normalization/nchw/neon/fp32.cpp
 	cpu/kernels/fuse_batch_normalization/nhwc/neon/fp16.cpp
 	cpu/kernels/fuse_batch_normalization/nhwc/neon/fp32.cpp
 	cpu/kernels/gemm_matrix_add/generic/neon/fp16.cpp
@@ -785,6 +826,10 @@ target_sources(
 	cpu/kernels/meanstddevnorm/generic/neon/fp32.cpp
 	cpu/kernels/meanstddevnorm/generic/neon/impl.cpp
 	cpu/kernels/meanstddevnorm/generic/neon/qasymm8.cpp
+	cpu/kernels/mul/generic/neon/fp16.cpp
+	cpu/kernels/mul/generic/neon/fp32.cpp
+	cpu/kernels/norm_layer/generic/neon/fp16.cpp
+	cpu/kernels/norm_layer/generic/neon/fp32.cpp
 	cpu/kernels/pool2d/neon/fp16.cpp
 	cpu/kernels/pool2d/neon/fp32.cpp
 	cpu/kernels/pool2d/neon/nchw/all.cpp
@@ -794,9 +839,17 @@ target_sources(
 	cpu/kernels/pool3d/neon/fp32.cpp
 	cpu/kernels/pool3d/neon/qasymm8.cpp
 	cpu/kernels/pool3d/neon/qasymm8_signed.cpp
+	cpu/kernels/quantize/generic/neon/fp16.cpp
+	cpu/kernels/quantize/generic/neon/fp32.cpp
+	cpu/kernels/quantize/generic/neon/integer.cpp
 	cpu/kernels/range/generic/neon/fp16.cpp
 	cpu/kernels/range/generic/neon/fp32.cpp
 	cpu/kernels/range/generic/neon/integer.cpp
+	cpu/kernels/reduction_layer/generic/neon/fp16.cpp
+	cpu/kernels/reduction_layer/generic/neon/fp32.cpp
+	cpu/kernels/reduction_layer/generic/neon/integer.cpp
+	cpu/kernels/reduction_layer/generic/neon/qasymm8.cpp
+	cpu/kernels/reduction_layer/generic/neon/qasymm8_signed.cpp
 	cpu/kernels/roialign/generic/neon/fp16.cpp
 	cpu/kernels/roialign/generic/neon/fp32.cpp
 	cpu/kernels/roialign/generic/neon/qasymm8.cpp
@@ -850,6 +903,7 @@ target_sources(
 	cpu/operators/CpuQuantize.cpp
 	cpu/operators/CpuReshape.cpp
 	cpu/operators/CpuScale.cpp
+	cpu/operators/CpuScatter.cpp
 	cpu/operators/CpuSoftmax.cpp
 	cpu/operators/CpuSub.cpp
 	cpu/operators/CpuTranspose.cpp
@@ -951,6 +1005,7 @@ target_sources(
 	runtime/NEON/functions/NEReshapeLayer.cpp
 	runtime/NEON/functions/NEReverse.cpp
 	runtime/NEON/functions/NEScale.cpp
+	runtime/NEON/functions/NEScatter.cpp
 	runtime/NEON/functions/NESelect.cpp
 	runtime/NEON/functions/NESlice.cpp
 	runtime/NEON/functions/NESoftmaxLayer.cpp
@@ -976,4 +1031,20 @@ target_sources(
 	runtime/Tensor.cpp
 	runtime/TensorAllocator.cpp
 	runtime/Utils.cpp
+	runtime/experimental/low_level/CpuGemmAssemblyDispatch.cpp
+	runtime/experimental/operators/CpuActivation.cpp
+	runtime/experimental/operators/CpuAdd.cpp
+	runtime/experimental/operators/CpuDepthwiseConv2d.cpp
+	runtime/experimental/operators/CpuDequantize.cpp
+	runtime/experimental/operators/CpuElementwise.cpp
+	runtime/experimental/operators/CpuGEMMLowp.cpp
+	runtime/experimental/operators/CpuGemm.cpp
+	runtime/experimental/operators/CpuGemmConv2d.cpp
+	runtime/experimental/operators/CpuGemmDirectConv2d.cpp
+	runtime/experimental/operators/CpuMul.cpp
+	runtime/experimental/operators/CpuQuantize.cpp
+	runtime/experimental/operators/CpuSoftmax.cpp
+	runtime/experimental/operators/CpuSub.cpp
+	runtime/experimental/operators/CpuTranspose.cpp
+	runtime/experimental/operators/CpuWinogradConv2d.cpp
 )

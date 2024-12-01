@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2022 Arm Limited.
+ * Copyright (c) 2021-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,41 +21,73 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef SRC_CORE_NEON_KERNELS_SOFTMAX_LIST_H
-#define SRC_CORE_NEON_KERNELS_SOFTMAX_LIST_H
+#ifndef ACL_SRC_CPU_KERNELS_SOFTMAX_LIST_H
+#define ACL_SRC_CPU_KERNELS_SOFTMAX_LIST_H
 
 namespace arm_compute
 {
 namespace cpu
 {
-#define DECLARE_SOFTMAX_KERNEL(func_name)                                                                  \
-    void func_name(const ITensor *in, const ITensor *max, void *const tmp, ITensor *out, const float beta, \
-                   bool is_log, const Window &window)
+#define DECLARE_SOFTMAX_KERNEL(func_name)                                                                              \
+    template <bool IS_LOG>                                                                                             \
+    void func_name(const ITensor *in, void *const tmp, ITensor *out, const float beta, int axis, const Window &window, \
+                   const void *lut_ptr)
 
 DECLARE_SOFTMAX_KERNEL(neon_fp32_softmax);
 DECLARE_SOFTMAX_KERNEL(neon_fp16_softmax);
 DECLARE_SOFTMAX_KERNEL(neon_qasymm8_softmax);
 DECLARE_SOFTMAX_KERNEL(neon_qasymm8_signed_softmax);
-DECLARE_SOFTMAX_KERNEL(sve_fp32_softmax);
-DECLARE_SOFTMAX_KERNEL(sve_fp16_softmax);
-DECLARE_SOFTMAX_KERNEL(sve2_qasymm8_signed_softmax);
-DECLARE_SOFTMAX_KERNEL(sve2_qasymm8_softmax);
+
+#ifdef ARM_COMPUTE_ENABLE_SME2
+
+void sme2_fp32_softmax(const ITensor *in,
+                       void *const    tmp,
+                       ITensor       *out,
+                       const float    beta,
+                       int            axis,
+                       const Window  &window,
+                       const void    *lut_ptr);
+
+void sme2_fp16_softmax(const ITensor *in,
+                       void *const    tmp,
+                       ITensor       *out,
+                       const float    beta,
+                       int            axis,
+                       const Window  &window,
+                       const void    *lut_ptr);
+
+void sme2_qasymm8_softmax_lut_512VL(const ITensor *in,
+                                    void *const    tmp,
+                                    ITensor       *out,
+                                    const float    beta,
+                                    int            axis,
+                                    const Window  &window,
+                                    const void    *lut_ptr);
+
+void sme2_qasymm8_signed_softmax_lut_512VL(const ITensor *in,
+                                           void *const    tmp,
+                                           ITensor       *out,
+                                           const float    beta,
+                                           int            axis,
+                                           const Window  &window,
+                                           const void    *lut_ptr);
+
+#endif // ARM_COMPUTE_ENABLE_SME2
+
+#ifdef ARM_COMPUTE_ENABLE_BF16
+
+void sve_softmax_bf16(const ITensor *in,
+                      void *const    tmp,
+                      ITensor       *out,
+                      const float    beta,
+                      int            axis,
+                      const Window  &window,
+                      const void    *lut_ptr);
+
+#endif // ARM_COMPUTE_ENABLE_BF16
 
 #undef DECLARE_SOFTMAX_KERNEL
-
-#define DECLARE_LOGITS_KERNEL(func_name) void func_name(const ITensor *in, ITensor *out, const Window &window)
-
-DECLARE_LOGITS_KERNEL(neon_fp32_logits);
-DECLARE_LOGITS_KERNEL(neon_fp16_logits);
-DECLARE_LOGITS_KERNEL(neon_qasymm8_logits);
-DECLARE_LOGITS_KERNEL(neon_qasymm8_singed_logits);
-DECLARE_LOGITS_KERNEL(sve_fp32_logits);
-DECLARE_LOGITS_KERNEL(sve_fp16_logits);
-DECLARE_LOGITS_KERNEL(sve_qasymm8_logits);
-DECLARE_LOGITS_KERNEL(sve_qasymm8_signed_logits);
-
-#undef DECLARE_LOGITS_KERNEL
 } // namespace cpu
 } // namespace arm_compute
 
-#endif /* SRC_CORE_NEON_KERNELS_SOFTMAX_LIST_H */
+#endif // ACL_SRC_CPU_KERNELS_SOFTMAX_LIST_H

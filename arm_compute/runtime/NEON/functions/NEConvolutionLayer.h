@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021, 2023 Arm Limited.
+ * Copyright (c) 2018-2021, 2023-2024 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,6 +29,7 @@
 #include "arm_compute/function_info/ActivationLayerInfo.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/MemoryGroup.h"
+#include "arm_compute/runtime/MemoryManagerOnDemand.h"
 
 #include <memory>
 
@@ -38,9 +39,9 @@ namespace arm_compute
 class ITensor;
 
 /** Basic function to simulate a convolution layer. This function calls one of the following functions:
- * -# @ref cpu::CpuGemmConv2d     (executed only in case GEMM is required for the operation)
- * -# @ref cpu::CpuWinogradConv2d (executed only in case Winograd is required for the operation)
- * -# @ref cpu::CpuDirectConv2d   (executed only in case Direct Convolution is required for the operation)
+ * -# cpu::CpuGemmConv2d     (executed only in case GEMM is required for the operation)
+ * -# cpu::CpuWinogradConv2d (executed only in case Winograd is required for the operation)
+ * -# cpu::CpuDirectConv2d   (executed only in case Direct Convolution is required for the operation)
  * -# @ref NEFFTConvolutionLayer      (executed only in case FFT is required for the operation)
  *
  *
@@ -73,7 +74,10 @@ class NEConvolutionLayer : public IFunction
 {
 public:
     /** Constructor */
-    NEConvolutionLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    NEConvolutionLayer(std::shared_ptr<IMemoryManager> memory_manager);
+    NEConvolutionLayer() : NEConvolutionLayer(MemoryManagerOnDemand::make_default())
+    {
+    }
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEConvolutionLayer(const NEConvolutionLayer &) = delete;
     /** Prevent instances of this class from being copied (As this class contains pointers) */
@@ -96,6 +100,7 @@ public:
      * |F16            |F16                |F16    |F16            |
      * |F32            |F32                |F32    |F32            |
      * |QASYMM8        |QASYMM8            |S32    |QASYMM8        |
+     * |QASYMM8        |QASYMM8_SIGNED     |S32    |QASYMM8        |
      * |QASYMM8        |QSYMM8_PER_CHANNEL |S32    |QASYMM8        |
      * |QASYMM8_SIGNED |QASYMM8_SIGNED     |S32    |QASYMM8_SIGNED |
      * |QASYMM8_SIGNED |QSYMM8_PER_CHANNEL |S32    |QASYMM8_SIGNED |
@@ -104,7 +109,7 @@ public:
      *                              while every optional dimension from 4 and above represent a batch of inputs.
      *                              Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32.
      * @param[in]  weights          Weights tensor. Weights are 4D tensor with dimensions [kernel_x, kernel_y, IFM, OFM].
-     *                              Data type supported: Same as @p input, also could be QSYMM8_PER_CHANNEL if input is QASYMM8/QASYMM8_SIGNED.
+     *                              Data type supported: Same as @p input, also could be QSYMM8_PER_CHANNEL or QASYMM8_SIGNED if input is QASYMM8/QASYMM8_SIGNED.
      * @param[in]  biases           Biases tensor. Shared biases supported. Biases are 1D tensor with dimensions [OFM].
      *                              Data type supported: Same as @p input, except for input of QASYMM8/QASYMM8_SIGNED type where biases should be of S32 type.
      * @param[out] output           Destination tensor. 3 lower dimensions represent a single output [width, height, OFM], while the rest represent batch of outputs.
@@ -134,7 +139,7 @@ public:
      *                             while every optional dimension from 4 and above represent a batch of inputs.
      *                             Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32.
      * @param[in] weights          Weights tensor. Weights are 4D tensor with dimensions [kernel_x, kernel_y, IFM, OFM].
-     *                             Data type supported:Same as @p input, also could be QSYMM8_PER_CHANNEL if input is QASYMM8/QASYMM8_SIGNED.
+     *                             Data type supported:Same as @p input, also could be QSYMM8_PER_CHANNEL or QASYMM8_SIGNED if input is QASYMM8/QASYMM8_SIGNED.
      * @param[in] biases           Biases tensor. Shared biases supported. Biases are 1D tensor with dimensions [OFM].
      *                             Data type supported: Same as @p input, except for input of QASYMM8/QASYMM8_SIGNED type where biases should be of S32 type.
      * @param[in] output           Destination tensor. 3 lower dimensions represent a single output [width, height, OFM], while the rest represent batch of outputs.
@@ -166,7 +171,7 @@ public:
      *                             while every optional dimension from 4 and above represent a batch of inputs.
      *                             Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32.
      * @param[in] weights          Weights tensor. Weights are 4D tensor with dimensions [kernel_x, kernel_y, IFM, OFM].
-     *                             Data type supported:Same as @p input, also could be QSYMM8_PER_CHANNEL if input is QASYMM8/QASYMM8_SIGNED.
+     *                             Data type supported:Same as @p input, also could be QSYMM8_PER_CHANNEL or QASYMM8_SIGNED if input is QASYMM8/QASYMM8_SIGNED.
      * @param[in] output           Destination tensor. 3 lower dimensions represent a single output [width, height, OFM], while the rest represent batch of outputs.
      *                             Data types supported: Same as @p input.
      * @param[in] conv_info        Contains padding and stride information described in @ref PadStrideInfo.
