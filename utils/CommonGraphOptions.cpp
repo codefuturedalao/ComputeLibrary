@@ -235,5 +235,22 @@ CommonGraphParams consume_common_graph_parameters(CommonGraphOptions &options)
 
     return common_params;
 }
+
+arm_compute::graph::GraphConfig consume_common_graph_config(CommonGraphParams &params)
+{
+    
+    arm_compute::graph::GraphConfig config;
+    config.num_threads = params.threads;
+    config.threads_affinity = params.threads_affinity;
+    config.scheduler = (arm_compute::Scheduler::Type)params.scheduler;
+    config.use_tuner   = params.enable_tuner;
+    config.tuner_mode  = params.tuner_mode;
+    config.tuner_file  = params.tuner_file;
+    config.mlgo_file   = params.mlgo_file;
+    config.use_synthetic_type = arm_compute::is_data_type_quantized(params.data_type);
+    config.synthetic_type     = params.data_type;
+    return config;
+}
+
 } // namespace utils
 } // namespace arm_compute

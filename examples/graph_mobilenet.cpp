@@ -98,6 +98,7 @@ public:
 
         // Finalize graph
         GraphConfig config;
+        /*
         config.num_threads = common_params.threads;
         config.threads_affinity = common_params.threads_affinity;
         config.scheduler = (Scheduler::Type)common_params.scheduler;
@@ -105,6 +106,8 @@ public:
         config.tuner_mode  = common_params.tuner_mode;
         config.tuner_file  = common_params.tuner_file;
         config.mlgo_file   = common_params.mlgo_file;
+        */
+        config = consume_common_graph_config(common_params);
 
         graph.finalize(common_params.target, config);
 

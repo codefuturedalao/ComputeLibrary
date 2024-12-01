@@ -27,6 +27,7 @@
 #include "arm_compute/graph/TypeLoader.h"
 #include "arm_compute/graph/TypePrinter.h"
 #include "arm_compute/runtime/CL/CLTunerTypes.h"
+#include "arm_compute/graph/Types.h"
 
 #include "utils/command_line/CommandLineOptions.h"
 #include "utils/command_line/CommandLineParser.h"
@@ -183,6 +184,15 @@ public:
  * @return Structure containing the common graph parameters
  */
 CommonGraphParams consume_common_graph_parameters(CommonGraphOptions &options);
+
+/** Consumes the common graph params and creates a structure containing any information about graph config
+ *
+ * @param[in] params Params to consume
+ *
+ * @return Structure containing the common graph configs
+ */
+arm_compute::graph::GraphConfig consume_common_graph_config(CommonGraphParams &params);
+
 } // namespace utils
 } // namespace arm_compute
 #endif /* ARM_COMPUTE_EXAMPLES_UTILS_COMMON_GRAPH_OPTIONS */
