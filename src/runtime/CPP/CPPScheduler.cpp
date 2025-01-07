@@ -375,13 +375,13 @@ struct CPPScheduler::Impl final
         _num_threads = num_threads == 0 ? thread_hint : num_threads;
 
         // Set affinity on main thread
-        set_thread_affinity(func(0, thread_hint));
+        set_thread_affinity(func(0, _num_threads));
 
         // Set affinity on worked threads
         _threads.clear();
         for (auto i = 1U; i < _num_threads; ++i)
         {
-            _threads.emplace_back(func(i, thread_hint));
+            _threads.emplace_back(func(i, _num_threads));
         }
         auto_switch_mode(_num_threads);
     }

@@ -50,8 +50,8 @@ Scheduler::Type Scheduler::_scheduler_type = Scheduler::Type::CPP;
 Scheduler::Type Scheduler::_scheduler_type = Scheduler::Type::ST;
 #endif /* ARM_COMPUTE_*_SCHEDULER */
 
-//std::shared_ptr<IScheduler> Scheduler::_custom_scheduler = nullptr;
-std::shared_ptr<IScheduler> Scheduler::_custom_scheduler = std::make_shared<SmartScheduler>();
+std::shared_ptr<IScheduler> Scheduler::_custom_scheduler = nullptr;
+//std::shared_ptr<IScheduler> Scheduler::_custom_scheduler = std::make_shared<SmartScheduler>();
 
 namespace
 {
@@ -82,6 +82,10 @@ bool Scheduler::is_available(Type t)
 {
     if (t == Type::CUSTOM)
     {
+        if (_custom_scheduler == nullptr)
+        {
+           _custom_scheduler = std::make_shared<SmartScheduler>();
+        }   
         return _custom_scheduler != nullptr;
     }
     else
