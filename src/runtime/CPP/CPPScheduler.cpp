@@ -101,7 +101,8 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
     //std::cout << " job_complete" << info.thread_id << std::endl;
     //std::cout << " Workload_index  " << workload_index << " end " << workloads.size() << std::endl;
 
-    std::cout << "Thread " << thread_id << ": " << duration << std::endl;
+    std::printf("Thread %d: %d\n", thread_id, duration);
+    // std::cout << "Thread " << thread_id << ": " << duration << std::endl;
     /*
     unsigned int workload_index = info.thread_id;
     do
