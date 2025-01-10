@@ -136,8 +136,11 @@ public:
     using Workload = std::function<void(const ThreadInfo &)>;
     static std::mutex mtx;     //file mutex
     static std::ofstream _outputFile;
+    static std::ofstream trace_marker;
+    static int trace_marker_fd;
     static bool sw_flag;
     static bool log_flag;
+    static bool ftrace_flag;
     static const int capacity_arg;
     static const int capacity_arg_tagged;
     static const int num_it;
@@ -148,6 +151,7 @@ public:
     static std::vector<std::chrono::high_resolution_clock::time_point> thread_end_time;
     static std::vector<int> kernel_duration;
     static void write_to_log_file(const std::string& message);
+    static void write_to_trace_marker(const std::string& message);
     /** Default constructor. */
     IScheduler();
 
@@ -251,6 +255,8 @@ protected:
                                       std::size_t       init_num_windows,
                                       const ICPPKernel &kernel,
                                       const CPUInfo    &cpu_info);
+    /* SmartScheduler */
+    std::size_t find_max_num_of_windows(const Window &window);
 
 private:
     unsigned int _num_threads_hint = {};

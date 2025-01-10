@@ -425,6 +425,7 @@ struct SmartScheduler::Impl final
     {
         //std::cout << "Num_threads" << num_threads;
         //std::cout << "threads_hint" << thread_hint;
+        /* One Big core with three small cores */
         if (num_threads == 4 && IScheduler::sw_flag) {
             // Set affinity on worked threads
             _num_threads = num_threads;

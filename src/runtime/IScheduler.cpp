@@ -34,18 +34,26 @@
 #include <ctime>
 #include <iostream>
 #include <sstream>
+//#include <thread>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#define gettid() syscall(SYS_gettid)
 
 namespace arm_compute
 {
 /* a few of configuration arguments defined by qlsang */
 std::mutex IScheduler::mtx;
 std::ofstream IScheduler::_outputFile;
-bool IScheduler::sw_flag = false;
+std::ofstream IScheduler::trace_marker;
+int IScheduler::trace_marker_fd;
+bool IScheduler::sw_flag = false;               // This flag was deprecated
 bool IScheduler::log_flag = false;
+bool IScheduler::ftrace_flag = true;
 const int IScheduler::capacity_arg = 4;
 const int IScheduler::capacity_arg_tagged = 7;
 const int IScheduler::num_it = capacity_arg * 2 + 2;
-std::vector<int> IScheduler::sched_latency;  //interval - max
+std::vector<int> IScheduler::sched_latency;  //interval - max, maybe runnable time
 std::vector<int> IScheduler::wait_latency;   //max - min
 std::vector<int> IScheduler::thread_wait_latency;   //max - min
 std::vector<int> IScheduler::workload_time;
@@ -57,7 +65,23 @@ IScheduler::IScheduler()
     // Work out the best possible number of execution threads
     _num_threads_hint = cpuinfo::num_threads_hint();
     std::cout << "[Feature split_window_uneven]---> " << ((sw_flag == true) ? "On" : "Off") << std::endl;
-    std::cout << "[Log]--> " << ((sw_flag == true) ? "On" : "Off") << std::endl;
+    std::cout << "[Log]--> " << ((log_flag == true) ? "On" : "Off") << std::endl;
+
+    static const std::string tracefs_path = "/sys/kernel/tracing/";
+    static const std::string trace_file   = "trace_marker";
+    trace_marker_fd = open((tracefs_path + trace_file).c_str(), O_WRONLY);
+    if(trace_marker_fd == -1) {
+        std::cerr << "Failed to open trace_marker file" << std::endl;
+    }
+    /*
+    trace_marker.open("/sys/kernel/tracing/trace_marker");
+    if (trace_marker.is_open()) {
+        trace_marker << "Initial IScheduler" << std::endl;
+        trace_marker << "Initial CPPScheduler" << std::endl;
+    } else {
+        std::cerr << "Failed to open trace_marker file" << std::endl;
+    }
+    */
 }
 
 IScheduler::~IScheduler()
@@ -65,6 +89,37 @@ IScheduler::~IScheduler()
     if(_outputFile.is_open()) {
         _outputFile.close();
     }
+    if(trace_marker_fd != -1) {
+        close(trace_marker_fd);
+    }
+    /*
+    if(trace_marker.is_open()) {
+        trace_marker.close();
+    }
+    */
+}
+
+void IScheduler::write_to_trace_marker(const std::string & message) {
+    char buffer[128];
+    int  len = 0;
+    std::cout << "Write to trace marker" << std::endl;
+    if(!ftrace_flag){ 
+        return;
+    }
+    len = snprintf(buffer, 128, "%s", message.c_str()); 
+    if(write(trace_marker_fd, buffer, len) != len)
+    {
+        std::cout << "Failed to open trace_marker file" << std::endl;
+    }
+    /*
+    if(trace_marker.is_open()) {
+        std::cout << "Write successful: " << message << std::endl;
+        trace_marker << message << std::endl;
+        trace_marker.flush();
+    } else {
+        std::cout << "Failed to open trace_marker file" << std::endl;
+    }
+    */
 }
 
 void IScheduler::write_to_log_file(const std::string& message) {
@@ -113,6 +168,10 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
     const Window &max_window = window;
     std::cout << "---------" << kernel->name()  << "--------" << std::endl;
     auto start = std::chrono::high_resolution_clock::now();
+    std::stringstream ss;
+    pid_t tid = gettid();
+    ss << "B|" << tid << "|" << kernel->name();
+    IScheduler::write_to_trace_marker(ss.str());
     /*
     std::stringstream ss;
     ss << kernel->name() << ", x, " << max_window.num_iterations(hints.split_dimension()) << ", 0";
@@ -125,7 +184,7 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
          * if the split dim is size_t max then this signals we should parallelise over
          * all dimensions
          */
-        //std::cout << "parallelise all dimension" << std::endl;
+        std::cout << "parallelise all dimension" << std::endl;
         const std::size_t m = max_window.num_iterations(Window::DimX);
         const std::size_t n = max_window.num_iterations(Window::DimY);
 
@@ -165,7 +224,8 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
         const unsigned int num_iterations = max_window.num_iterations(hints.split_dimension());
         unsigned int num_threads    = std::min(num_iterations, this->num_threads());
 
-        //std::cout << "We got split-dimension" << hints.split_dimension() << std::endl;
+        std::cout << "We got split-dimension " << hints.split_dimension() << std::endl;
+        find_max_num_of_windows(max_window);
         /*
         std::vector<std::string> non_interation_kernel = {"CpuDepthwiseConv2dAssemblyWrapperKernel", 
                                         "CpuWinogradConv2dTransformInputKernel",
@@ -196,8 +256,8 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
             num_threads = 2;
         }
         */
-        //std::cout << "num_interations" << num_iterations << std::endl;
-        //std::cout << "num_threads" << num_threads << std::endl;
+        std::cout << "num_interations" << num_iterations << std::endl;
+        std::cout << "num_threads" << num_threads << std::endl;
 
         if (num_iterations == 0)
         {
@@ -224,12 +284,12 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
             switch (hints.strategy())
             {
                 case StrategyHint::STATIC:
-                    //std::cout << "split the windows with strategy static" << std::endl;
+                    std::cout << "split the windows with strategy static" << std::endl;
                     num_windows = num_threads;
                     break;
                 case StrategyHint::DYNAMIC:
                 {
-                    //std::cout << "split the windows with strategy dynamic" << std::endl;
+                    std::cout << "split the windows with strategy dynamic" << std::endl;
                     const unsigned int granule_threshold =
                         (hints.threshold() <= 0) ? num_threads : static_cast<unsigned int>(hints.threshold());
                     // Make sure we don't use some windows which are too small as this might create some contention on the ThreadFeeder
@@ -335,6 +395,9 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
     std::string duration_k= ss.str();
     IScheduler::write_to_log_file(duration_k);
     */
+    ss.str("");
+    ss << "E|" << tid;
+    IScheduler::write_to_trace_marker(ss.str());
 }
 
 bool IScheduler::set_gpu_clk(int clk) {
@@ -385,7 +448,33 @@ void IScheduler::run_tagged_workloads(std::vector<Workload> &workloads, const ch
 {
     ARM_COMPUTE_UNUSED(tag);
     //std::cout << "[IScheduler::run_tagged_workloads]---> " << workloads.size() << " workloads with " << tag << " Tag" << std::endl;
+    std::stringstream ss;
+    pid_t tid = gettid();
+    ss << "B|" << tid << "|" << "Run Tageed load " << tag;
+    IScheduler::write_to_trace_marker(ss.str());
     run_workloads(workloads);
+    ss.str("");
+    ss << "E|" << tid;
+    IScheduler::write_to_trace_marker(ss.str());
+}
+
+std::size_t IScheduler::find_max_num_of_windows(const Window &window)
+{
+
+    /* Profile by SmartScheduler */
+    auto recommended_split_dim = Window::DimX;
+    unsigned int recommended_num_interations = window.num_iterations(recommended_split_dim);
+    // start form DimX for profiling all dimensions' num_interations
+    for (std::size_t dims = Window::DimX; dims <= Window::DimW; ++dims)
+    {
+        std::cout << "Dim " << dims  << " has " << window.num_iterations(dims) << " iterations. " << std::endl;
+        if (recommended_num_interations < window.num_iterations(dims))
+        {
+            recommended_split_dim = dims;
+            recommended_num_interations = window.num_iterations(recommended_split_dim);
+        }
+    }
+    return recommended_num_interations;
 }
 
 std::size_t IScheduler::adjust_num_of_windows(const Window     &window,
