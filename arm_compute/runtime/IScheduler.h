@@ -144,6 +144,8 @@ public:
     static const int capacity_arg;
     static const int capacity_arg_tagged;
     static const int num_it;
+    static bool run_stage_flag;
+    static std::vector<int> run_processor_time;
     static std::vector<int> sched_latency;  //interval - max
     static std::vector<int> wait_latency;   //max - min
     static std::vector<int> thread_wait_latency;   //max - min

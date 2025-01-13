@@ -30,10 +30,12 @@
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/utils/misc/Utility.h"
 
+#include "arm_compute/runtime/IScheduler.h"
 #include "support/Mutex.h"
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdlib>
 #include <iostream>
 #include <list>
 #include <memory>
@@ -94,10 +96,20 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
     do
     {
         ARM_COMPUTE_ERROR_ON(workload_index >= workloads.size());
-        auto start = std::chrono::high_resolution_clock::now();
+        // auto start = std::chrono::high_resolution_clock::now();
+        timespec cpu_start,cpu_end;
+        if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_start) != 0) {
+            perror("clock_gettime");
+            exit(EXIT_FAILURE);
+        }
         workloads[workload_index](info);
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_end) != 0) {
+            perror("clock_gettime");
+            exit(EXIT_FAILURE);
+        }
+        auto duration_wl = (cpu_end.tv_sec - cpu_start.tv_sec) * 1000000 + (cpu_end.tv_nsec - cpu_start.tv_nsec) / 1000;
+        // auto end = std::chrono::high_resolution_clock::now();
+        // auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         //std::cout << " " << thread_id << " workload_" << workload_index <<  " " << duration_wl << " + " << IScheduler::workload_time[thread_id] << std::endl;
         /*
         std::stringstream ss;
@@ -677,6 +689,10 @@ void SmartScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
         int max_val = *std::max_element(IScheduler::workload_time.begin(), IScheduler::workload_time.end());
         IScheduler::wait_latency.push_back(max_val - min_val);
         IScheduler::sched_latency.push_back(duration_sum_workload - max_val);
+        if (IScheduler::run_stage_flag) {
+            IScheduler::run_processor_time.push_back(max_val);
+        }
+        std::printf("wait_latency: %lld, sched_latency: %d, run_processor_time: %d\n", max_val - min_val, duration_sum_workload - max_val, run_stage_flag ? max_val : 0);
         //IScheduler::workload_time.clear();
         //std::cout << " --------( " << max_val << " --- " << min_val << " )--------"<< std::endl;
         //std::cout << " --------( " << max_val - min_val << " " << duration_sum_workload - max_val << " )--------"<< std::endl;

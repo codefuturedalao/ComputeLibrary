@@ -59,6 +59,8 @@ std::vector<int> IScheduler::thread_wait_latency;   //max - min
 std::vector<int> IScheduler::workload_time;
 std::vector<std::chrono::high_resolution_clock::time_point> IScheduler::thread_end_time;
 std::vector<int> IScheduler::kernel_duration;
+std::vector<int> IScheduler::run_processor_time;
+bool IScheduler::run_stage_flag = false;
 
 IScheduler::IScheduler()
 {
@@ -377,7 +379,7 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
     auto end = std::chrono::high_resolution_clock::now();
     auto duration_kernel = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     IScheduler::kernel_duration.push_back(duration_kernel);
-    //std::cout << " ********( " << duration_kernel << " )********"<< std::endl;
+    std::cout << " ********( " << duration_kernel << " )********"<< std::endl;
     /*
     //ARM_COMPUTE_UNUSED(duration);
     ss.str("");
