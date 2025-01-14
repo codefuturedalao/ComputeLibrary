@@ -692,7 +692,7 @@ void SmartScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
         if (IScheduler::run_stage_flag) {
             IScheduler::run_processor_time.push_back(max_val);
         }
-        std::printf("wait_latency: %lld, sched_latency: %d, run_processor_time: %d\n", max_val - min_val, duration_sum_workload - max_val, run_stage_flag ? max_val : 0);
+        std::printf("wait_latency_curr: %d, sched_latency_curr: %lld, run_processor_time_curr: %d\n", max_val - min_val, duration_sum_workload - max_val, run_stage_flag ? max_val : 0);
         //IScheduler::workload_time.clear();
         //std::cout << " --------( " << max_val << " --- " << min_val << " )--------"<< std::endl;
         //std::cout << " --------( " << max_val - min_val << " " << duration_sum_workload - max_val << " )--------"<< std::endl;

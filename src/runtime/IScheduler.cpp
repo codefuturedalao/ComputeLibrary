@@ -271,6 +271,13 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
             //IScheduler::set_policy_frequency(4, 2419200);
             ThreadInfo info;
             info.cpu_info = &cpu_info();
+            IScheduler::workload_time.resize(num_threads, 0);
+            auto start = std::chrono::high_resolution_clock::now();
+            timespec cpu_start,cpu_end;
+            if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_start) != 0) {
+                perror("clock_gettime");
+                exit(EXIT_FAILURE);
+            }
             if (tensors.empty())
             {
                 kernel->run(max_window, info);
@@ -278,6 +285,16 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
             else
             {
                 kernel->run_op(tensors, max_window, info);
+            }
+            if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_end) != 0) {
+                perror("clock_gettime");
+                exit(EXIT_FAILURE);
+            }
+            IScheduler::workload_time[0] = (cpu_end.tv_sec - cpu_start.tv_sec) * 1000000 + (cpu_end.tv_nsec - cpu_start.tv_nsec) / 1000;
+            auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count();
+            IScheduler::sched_latency.push_back(elapsed - IScheduler::workload_time[0]);
+            if (IScheduler::run_stage_flag) {
+                IScheduler::run_processor_time.push_back(IScheduler::workload_time[0]);
             }
         }
         else
