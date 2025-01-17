@@ -30,10 +30,12 @@
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/utils/misc/Utility.h"
 
+#include "arm_compute/runtime/IScheduler.h"
 #include "support/Mutex.h"
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdlib>
 #include <iostream>
 #include <list>
 #include <memory>
@@ -89,15 +91,26 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
 {
     unsigned int workload_index = info.thread_id;
     unsigned int thread_id = info.thread_id;
+    std::stringstream ss;
+    pid_t pid = getpid();
+    ss << "B|" << pid << "|" << "process_workloads";
+    std::printf("B|%d|%s\n", pid, "process_workloads"); 
+    IScheduler::write_to_trace_marker(ss.str());
+    timespec cpu_start,cpu_end;
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_start) != 0) {
+        perror("clock_gettime");
+        exit(EXIT_FAILURE);
+    }
     ARM_COMPUTE_ERROR_ON(thread_id >= IScheduler::workload_time.size());
     ARM_COMPUTE_ERROR_ON(thread_id >= IScheduler::thread_end_time.size());
     do
     {
         ARM_COMPUTE_ERROR_ON(workload_index >= workloads.size());
-        auto start = std::chrono::high_resolution_clock::now();
+
+        // auto start = std::chrono::high_resolution_clock::now();
         workloads[workload_index](info);
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        // auto end = std::chrono::high_resolution_clock::now();
+        // auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         //std::cout << " " << thread_id << " workload_" << workload_index <<  " " << duration_wl << " + " << IScheduler::workload_time[thread_id] << std::endl;
         //std::printf("Thread %d on Workload %d with %lld ns, now work %d ns\n", thread_id, workload_index, duration_wl, IScheduler::workload_time[thread_id]);
         /*
@@ -106,10 +119,18 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
         std::string wl_time = ss.str();
         IScheduler::write_to_log_file(wl_time);
         */
-        IScheduler::workload_time[thread_id] += duration_wl;
     } while (feeder.get_next(workload_index));
     //std::cout << " job_complete" << info.thread_id << std::endl;
     //std::cout << " Workload_index  " << workload_index << " end " << workloads.size() << std::endl;
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_end) != 0) {
+        perror("clock_gettime");
+        exit(EXIT_FAILURE);
+    }
+    auto duration_wl = (cpu_end.tv_sec - cpu_start.tv_sec) * 1000000 + (cpu_end.tv_nsec - cpu_start.tv_nsec) / 1000;
+    IScheduler::workload_time[thread_id] = duration_wl;
+    ss.str(""); 
+    ss << "E|" << pid;
+    IScheduler::write_to_trace_marker(ss.str());
 
     std::printf("Thread %d: %d\n", thread_id, IScheduler::workload_time[thread_id]);
     // std::cout << "Thread " << thread_id << ": " << IScheduler::workload_time[thread_id] << std::endl;
@@ -685,9 +706,13 @@ void SmartScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
         int max_val = *std::max_element(IScheduler::workload_time.begin(), IScheduler::workload_time.end());
         IScheduler::wait_latency.push_back(max_val - min_val);
         IScheduler::sched_latency.push_back(duration_sum_workload - max_val);
+        if (IScheduler::run_stage_flag) {
+            IScheduler::run_processor_time.push_back(max_val);
+        }
+        std::printf("wait_latency_curr: %d, sched_latency_curr: %lld, run_processor_time_curr: %d\n", max_val - min_val, duration_sum_workload - max_val, run_stage_flag ? max_val : 0);
         //IScheduler::workload_time.clear();
-        //std::cout << " --------( " << max_val << " --- " << min_val << " )--------"<< std::endl;
-        //std::cout << " --------( " << max_val - min_val << " " << duration_sum_workload - max_val << " )--------"<< std::endl;
+        std::cout << " --------( " << max_val << " --- " << min_val << " )--------"<< std::endl;
+        std::cout << " --------( " << max_val - min_val << " " << duration_sum_workload - max_val << " )--------"<< std::endl;
     }
     /*
     if(!IScheduler::thread_end_time.empty()) {
