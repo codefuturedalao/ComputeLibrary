@@ -24,6 +24,7 @@
 #include "src/cpu/operators/internal/CpuGemmAssemblyDispatch.h"
 
 #include "arm_compute/runtime/NEON/NEScheduler.h"
+#include "arm_compute/runtime/CPP/SmartScheduler.h"
 
 #include "src/core/CPP/Validate.h"
 #include "src/core/helpers/MemoryHelpers.h"
@@ -233,9 +234,13 @@ IScheduler::Hints scheduling_hint_heuristic(arm_gemm::GemmMethod method, DataTyp
     // Schedule assembly kernel
     const int         granule_threshold = 200;
     IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX);
-    //IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, 256);
+    if (SmartScheduler::scheduling_mode) {
+        scheduling_hint = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, 256);
+        //std::cout << "CpuGemmAssemblyDispatch scheduling_hint_dynamic" << std::endl;
+    }
     if (method == arm_gemm::GemmMethod::GEMM_INTERLEAVED && data_type == DataType::F32)
     {
+        std::cout << "GemmMethod::GEMM_INTERLEAVED " << std::endl;
         scheduling_hint = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, granule_threshold);
     }
     else if (method == arm_gemm::GemmMethod::GEMM_INTERLEAVED_2D &&
@@ -243,6 +248,7 @@ IScheduler::Hints scheduling_hint_heuristic(arm_gemm::GemmMethod method, DataTyp
               data_type == DataType::S8))
     {
         //GEMM_INTERLEAVED supports 2D parallelism, IScheduler::split_dimensions_all signals to parallelise over all window dimensions
+        std::cout << "GemmMethod::GEMM_INTERLEAVED_2D " << std::endl;
         scheduling_hint =
             IScheduler::Hints(IScheduler::split_dimensions_all, IScheduler::StrategyHint::STATIC, granule_threshold);
     }
@@ -250,9 +256,11 @@ IScheduler::Hints scheduling_hint_heuristic(arm_gemm::GemmMethod method, DataTyp
              (data_type == DataType::QASYMM8 || data_type == DataType::QASYMM8_SIGNED))
     {
         //special case for QASYMM8 to support 2D parallelism, scheduler here may be tweaked differently compared to FP32 case
+        std::cout << "GemmMethod::QUANTIZE_WRAPPER_2D " << std::endl;
         scheduling_hint =
             IScheduler::Hints(IScheduler::split_dimensions_all, IScheduler::StrategyHint::STATIC, granule_threshold);
     }
+    std::cout << "GemmMethod::NOT_ABOVE" << std::endl;
 
     return scheduling_hint;
 }

@@ -97,6 +97,7 @@ struct CommonGraphParams
     int                              threads{0};
     std::string                      threads_affinity{};
     arm_compute::graph::CPUScheduler scheduler{arm_compute::graph::CPUScheduler::CPP};
+    bool scheduling_mode{false};
     int                              batches{1};
     arm_compute::graph::Target       target{arm_compute::graph::Target::NEON};
     arm_compute::DataType            data_type{DataType::F32};
@@ -158,6 +159,7 @@ public:
     /* for smartscheduler*/
     SimpleOption<std::string>                      *threads_affinity;
     EnumOption<arm_compute::graph::CPUScheduler> *scheduler;           /**< Graph execution target */
+    ToggleOption                           *scheduling_mode;     /**< Enable tuner */
 
     SimpleOption<int>                      *batches;          /**< Number of batches */
     EnumOption<arm_compute::graph::Target> *target;           /**< Graph execution target */

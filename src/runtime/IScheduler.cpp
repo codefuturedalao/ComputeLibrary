@@ -102,24 +102,17 @@ IScheduler::~IScheduler()
 void IScheduler::write_to_trace_marker(const std::string & message) {
     char buffer[128];
     int  len = 0;
-    std::cout << "Write to trace marker" << std::endl;
+    //std::cout << "Write to trace marker" << std::endl;
     if(!ftrace_flag){ 
         return;
     }
     len = snprintf(buffer, 128, "%s", message.c_str()); 
-    if(write(trace_marker_fd, buffer, len) != len)
+    int len_written;
+    if((len_written = write(trace_marker_fd, buffer, len)) != len)
     {
+        std::cout <<  len_written << " != " << len << std::endl;
         std::cout << "Failed to open trace_marker file" << std::endl;
     }
-    /*
-    if(trace_marker.is_open()) {
-        std::cout << "Write successful: " << message << std::endl;
-        trace_marker << message << std::endl;
-        trace_marker.flush();
-    } else {
-        std::cout << "Failed to open trace_marker file" << std::endl;
-    }
-    */
 }
 
 void IScheduler::write_to_log_file(const std::string& message) {
@@ -300,9 +293,9 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
                     ARM_COMPUTE_ERROR("Unknown strategy");
             }
             // Make sure the smallest window is larger than minimum workload size
-            //std::cout << "num_windows" << num_windows << std::endl;
+            std::cout << "num_windows" << num_windows << std::endl;
             num_windows = adjust_num_of_windows(max_window, hints.split_dimension(), num_windows, *kernel, cpu_info());
-            //std::cout << "adjusted num_windows" << num_windows << std::endl;
+            std::cout << "adjusted num_windows" << num_windows << std::endl;
 
             std::vector<IScheduler::Workload> workloads(num_windows);
             for (unsigned int t = 0; t < num_windows; ++t)

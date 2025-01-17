@@ -99,6 +99,7 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
         auto end = std::chrono::high_resolution_clock::now();
         auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         //std::cout << " " << thread_id << " workload_" << workload_index <<  " " << duration_wl << " + " << IScheduler::workload_time[thread_id] << std::endl;
+        //std::printf("Thread %d on Workload %d with %lld ns, now work %d ns\n", thread_id, workload_index, duration_wl, IScheduler::workload_time[thread_id]);
         /*
         std::stringstream ss;
         ss << thread_id << ", " << workload_index << ", " << duration_wl << ", " << IScheduler::workload_time[thread_id];
@@ -537,6 +538,13 @@ struct SmartScheduler::Impl final
     ModeToggle         _forced_mode{ModeToggle::None};
     unsigned int       _wake_fanout{0};
 };
+
+bool SmartScheduler::scheduling_mode = false;           //Control by the cmd parser
+void SmartScheduler::set_scheduling_mode(bool scheduling_mode)
+{
+    SmartScheduler::scheduling_mode = scheduling_mode;
+    std::cout << "Set scheduling_mode to " << scheduling_mode << std::endl;   
+}
 
 /*
  * This singleton has been deprecated and will be removed in future releases

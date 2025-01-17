@@ -54,6 +54,13 @@ public:
      */
     static SmartScheduler &get();
 
+    /* Put the scheduling_mode in SmartScheduler instead of IScheduler for two reasons:
+        1. Compilation Time, IScheduler.h always make a lots of files to be recompile
+        2. This Feature is unstable and should be a feature of SmartScheduler instead of IScheduler
+    */
+    static bool scheduling_mode;
+    static void set_scheduling_mode(bool scheduling_mode);
+
     // Inherited functions overridden
     void         set_num_threads(unsigned int num_threads) override;
     void         set_num_threads_with_affinity(unsigned int num_threads, BindFunc func) override;

@@ -82,6 +82,7 @@ namespace utils
     os << "Threads : " << common_params.threads << std::endl;
     os << "Threads Affinity: " << common_params.threads_affinity << std::endl;
     os << "Threads Scheduler: " << common_params.scheduler << std::endl;
+    os << "Threads Scheduling Mode: " << (common_params.scheduling_mode ? true_str : false_str) << std::endl;
     os << "Target : " << common_params.target << std::endl;
     os << "Data type : " << common_params.data_type << std::endl;
     os << "Data layout : " << common_params.data_layout << std::endl;
@@ -124,6 +125,7 @@ CommonGraphOptions::CommonGraphOptions(CommandLineParser &parser)
       threads_affinity(parser.add_option<SimpleOption<std::string>>("threads-affinity")),
       //scheduler(parser.add_option<SimpleOption<std::string>>("scheduler")),
       scheduler(),
+      scheduling_mode(parser.add_option<ToggleOption>("enable-dynamic-scheduling")),
       batches(parser.add_option<SimpleOption<int>>("batches", 1)),
       target(),
       data_type(),
@@ -178,6 +180,7 @@ CommonGraphOptions::CommonGraphOptions(CommandLineParser &parser)
     threads->set_help("Number of threads to use");
     threads_affinity->set_help("Affinity of threads to use");
     scheduler->set_help("Scheduler to use");
+    scheduling_mode->set_help("Scheduling Mode to use (STATIC or DYNAMIC)");
     batches->set_help("Number of batches to use for the inputs");
     target->set_help("Target to execute on");
     data_type->set_help("Data type to use");
@@ -210,6 +213,7 @@ CommonGraphParams consume_common_graph_parameters(CommonGraphOptions &options)
     common_params.threads   = options.threads->value();
     common_params.threads_affinity   = options.threads_affinity->value();
     common_params.scheduler = options.scheduler->value();
+    common_params.scheduling_mode = options.scheduling_mode->value();
     common_params.batches   = options.batches->value();
     common_params.target    = options.target->value();
     common_params.data_type = options.data_type->value();
@@ -243,6 +247,7 @@ arm_compute::graph::GraphConfig consume_common_graph_config(CommonGraphParams &p
     config.num_threads = params.threads;
     config.threads_affinity = params.threads_affinity;
     config.scheduler = (arm_compute::Scheduler::Type)params.scheduler;
+    config.scheduling_mode = params.scheduling_mode;
     config.use_tuner   = params.enable_tuner;
     config.tuner_mode  = params.tuner_mode;
     config.tuner_file  = params.tuner_file;

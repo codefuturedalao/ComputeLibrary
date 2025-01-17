@@ -53,6 +53,7 @@ Status CpuConvertFullyConnectedWeights::validate(const ITensorInfo *src,
 
 void CpuConvertFullyConnectedWeights::run(ITensorPack &tensors)
 {
+    //NEScheduler::get().schedule_op(_kernel.get(), Window::DimY, _kernel->window(), tensors);
     NEScheduler::get().schedule_op(_kernel.get(), Window::DimZ, _kernel->window(), tensors);
 }
 } // namespace cpu

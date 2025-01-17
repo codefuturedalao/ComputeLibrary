@@ -62,6 +62,9 @@ void CpuConvertFullyConnectedWeightsKernel::configure(const ITensorInfo *src,
     _factor2 = (data_layout == DataLayout::NCHW) ? num_channels : num_elems_per_input_plane;
 
     // Configure kernel window
+    std::cout << "x shape is " << src->tensor_shape()[0] << std::endl;
+    std::cout << "y shape is " << src->tensor_shape()[1] << std::endl;
+    std::cout << "z shape is " << src->tensor_shape()[2] << std::endl;
     Window win = calculate_max_window(*src, Steps());
     ICpuKernel::configure(win);
 }
@@ -98,6 +101,7 @@ void CpuConvertFullyConnectedWeightsKernel::run_op(ITensorPack &tensors, const W
 
     const unsigned int dst_stride_x = dst->info()->strides_in_bytes().x();
     const unsigned int dst_stride_y = dst->info()->strides_in_bytes().y();
+//    const unsigned int element_size = src->info()->element_size() / 4;
     const unsigned int element_size = src->info()->element_size();
 
     Iterator input(src, window);
