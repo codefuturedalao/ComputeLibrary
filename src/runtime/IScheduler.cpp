@@ -104,10 +104,11 @@ IScheduler::~IScheduler()
 void IScheduler::write_to_trace_marker(const std::string & message) {
     char buffer[128];
     int  len = 0;
-    std::cout << "Write to trace marker" << std::endl;
+    //std::cout << "Write to trace marker" << std::endl;
     if(!ftrace_flag){ 
         return;
     }
+    std::lock_guard<std::mutex> lock(mtx);
     len = snprintf(buffer, 128, "%s", message.c_str()); 
     if(write(trace_marker_fd, buffer, len) != len)
     {
