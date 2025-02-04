@@ -27,6 +27,7 @@
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/Log.h"
+#include "arm_compute/runtime/Logger.h"
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/utils/misc/Utility.h"
 
@@ -89,57 +90,52 @@ private:
  */
 void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeeder &feeder, const ThreadInfo &info)
 {
+    ThreadInfo info_local = info;
     unsigned int workload_index = info.thread_id;
     unsigned int thread_id = info.thread_id;
+    /* Write the start of process_workloads */
     std::stringstream ss;
     pid_t pid = getpid();
     ss << "B|" << pid << "|" << "process_workloads";
-    std::printf("B|%d|%s\n", pid, "process_workloads"); 
     IScheduler::write_to_trace_marker(ss.str());
+
+    /* Statistics the time of workload time of each thread*/
     timespec cpu_start,cpu_end;
     if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_start) != 0) {
         perror("clock_gettime");
         exit(EXIT_FAILURE);
     }
+
+    /* process the workloads */
     ARM_COMPUTE_ERROR_ON(thread_id >= IScheduler::workload_time.size());
     ARM_COMPUTE_ERROR_ON(thread_id >= IScheduler::thread_end_time.size());
     do
     {
+        // ss.str(""); 
+        // ss << "B|" << pid << "|" << "index " << workload_index;
+        // IScheduler::write_to_trace_marker(ss.str());
         ARM_COMPUTE_ERROR_ON(workload_index >= workloads.size());
-
-        // auto start = std::chrono::high_resolution_clock::now();
-        workloads[workload_index](info);
-        // auto end = std::chrono::high_resolution_clock::now();
-        // auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        //std::cout << " " << thread_id << " workload_" << workload_index <<  " " << duration_wl << " + " << IScheduler::workload_time[thread_id] << std::endl;
-        //std::printf("Thread %d on Workload %d with %lld ns, now work %d ns\n", thread_id, workload_index, duration_wl, IScheduler::workload_time[thread_id]);
-        /*
-        std::stringstream ss;
-        ss << thread_id << ", " << workload_index << ", " << duration_wl << ", " << IScheduler::workload_time[thread_id];
-        std::string wl_time = ss.str();
-        IScheduler::write_to_log_file(wl_time);
-        */
+        info_local.thread_id = workload_index;  //for some kernels that use the thread_id to split workload instead of window
+        workloads[workload_index](info_local);
+        // ss.str(""); 
+        // ss << "E|" << pid;
+        // IScheduler::write_to_trace_marker(ss.str());
     } while (feeder.get_next(workload_index));
-    //std::cout << " job_complete" << info.thread_id << std::endl;
-    //std::cout << " Workload_index  " << workload_index << " end " << workloads.size() << std::endl;
+
+    /* Statistics the time of workload time of each thread*/
     if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_end) != 0) {
         perror("clock_gettime");
         exit(EXIT_FAILURE);
     }
     auto duration_wl = (cpu_end.tv_sec - cpu_start.tv_sec) * 1000000 + (cpu_end.tv_nsec - cpu_start.tv_nsec) / 1000;
     IScheduler::workload_time[thread_id] = duration_wl;
+
+    /* Write the end of process_workloads */
     ss.str(""); 
     ss << "E|" << pid;
     IScheduler::write_to_trace_marker(ss.str());
 
     std::printf("Thread %d: %d\n", thread_id, IScheduler::workload_time[thread_id]);
-    // std::cout << "Thread " << thread_id << ": " << IScheduler::workload_time[thread_id] << std::endl;
-    /*
-    std::stringstream ss;
-    ss << "x, x, x, " <<  IScheduler::workload_time[thread_id];
-    std::string wl_time = ss.str();
-    IScheduler::write_to_log_file(wl_time);
-    */
 }
 
 /** Set thread affinity. Pin current thread to a particular core
@@ -168,7 +164,7 @@ void set_thread_affinity(std::string hex_mask)
             CPU_SET(i, &set);
         }
     }
-    std::cout << "Schedule Thread to " << hex_mask << std::endl;
+    ARM_COMPUTE_LOG_RUNTIME_INFO( "Schedule Thread to " << hex_mask << std::endl);
     ARM_COMPUTE_EXIT_ON_MSG(sched_setaffinity(0, sizeof(set), &set), "Error setting thread affinity");
 #endif /* !defined(__APPLE__) && !defined(__OpenBSD__) */
 }
@@ -298,7 +294,7 @@ private:
 Thread::Thread(std::string core_pin) : _core_pin(core_pin)
 {
     _thread = std::thread(&Thread::worker_thread, this);
-    std::cout << "Create Thread id = " <<  _thread.get_id() << std::endl;
+    ARM_COMPUTE_LOG_RUNTIME_INFO( "Create Thread id = " <<  _thread.get_id() << std::endl);
 }
 
 Thread::~Thread()
@@ -428,7 +424,7 @@ struct SmartScheduler::Impl final
     explicit Impl(unsigned int thread_hint)
         : _num_threads(thread_hint), _threads(_num_threads - 1), _mode(Mode::Linear), _wake_fanout(0U)
     {
-        std::cout << "Impl Initializize with " << _num_threads - 1 << " threads in _threads" << std::endl;
+        ARM_COMPUTE_LOG_RUNTIME_INFO( "Impl Initializize with " << _num_threads - 1 << " threads in _threads" << std::endl);
         const auto mode_env_v = utility::tolower(utility::getenv("ARM_COMPUTE_CPP_SCHEDULER_MODE"));
         if (mode_env_v == "linear")
         {
@@ -445,8 +441,8 @@ struct SmartScheduler::Impl final
     }
     void set_num_threads(unsigned int num_threads, unsigned int thread_hint)
     {
-        //std::cout << "Num_threads" << num_threads;
-        //std::cout << "threads_hint" << thread_hint;
+        //ARM_COMPUTE_LOG_RUNTIME_INFO( "Num_threads" << num_threads);
+        //ARM_COMPUTE_LOG_RUNTIME_INFO( "threads_hint" << thread_hint);
         /* One Big core with three small cores */
         if (num_threads == 4 && IScheduler::sw_flag) {
             // Set affinity on worked threads
@@ -464,7 +460,7 @@ struct SmartScheduler::Impl final
             }
         } else {
             _num_threads = num_threads == 0 ? thread_hint : num_threads;
-            std::cout << "[SmartScheduler::set_num_threads]---> " << _num_threads << " _num_threads" << std::endl;
+            ARM_COMPUTE_LOG_RUNTIME_INFO( "[SmartScheduler::set_num_threads]---> " << _num_threads << " _num_threads" << std::endl);
             _threads.resize(_num_threads - 1);
             workload_time.resize(_num_threads, 0);
             thread_end_time.resize(_num_threads);
@@ -475,7 +471,7 @@ struct SmartScheduler::Impl final
     {
         _num_threads = num_threads == 0 ? thread_hint : num_threads;
 
-        std::cout << "[SmartScheduler::set_num_threads_with_affinity]---> " << _num_threads << " _num_threads" << std::endl;
+        ARM_COMPUTE_LOG_RUNTIME_INFO( "[SmartScheduler::set_num_threads_with_affinity]---> " << _num_threads << " _num_threads" << std::endl);
         // Set affinity on main thread
         set_thread_affinity(func(0, _num_threads));
 
@@ -564,7 +560,7 @@ bool SmartScheduler::scheduling_mode = false;           //Control by the cmd par
 void SmartScheduler::set_scheduling_mode(bool scheduling_mode)
 {
     SmartScheduler::scheduling_mode = scheduling_mode;
-    std::cout << "Set scheduling_mode to " << scheduling_mode << std::endl;   
+    ARM_COMPUTE_LOG_RUNTIME_INFO( "Set scheduling_mode to " << scheduling_mode << std::endl);   
 }
 
 /*
@@ -613,8 +609,8 @@ void SmartScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     arm_compute::lock_guard<std::mutex> lock(_impl->_run_workloads_mutex);
     const unsigned int num_threads_to_use = std::min(_impl->num_threads(), static_cast<unsigned int>(workloads.size()));
     if(_impl->num_threads() != workloads.size()) {
-        std::cout << "[SmartScheduler::run_workloads]---> " << workloads.size() << " workloads" << std::endl;
-        std::cout << "[SmartScheduler::run_workloads]---> " << _impl->num_threads() << " num_threads" << std::endl;
+        ARM_COMPUTE_LOG_RUNTIME_INFO( "[SmartScheduler::run_workloads]---> " << workloads.size() << " workloads");
+        ARM_COMPUTE_LOG_RUNTIME_INFO( "[SmartScheduler::run_workloads]---> " << _impl->num_threads() << " num_threads");
     }
     workload_time.resize(num_threads_to_use, 0);
     workload_time.assign(workload_time.size(), 0);
@@ -645,7 +641,8 @@ void SmartScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     ThreadFeeder feeder(num_threads_to_use, workloads.size());
     ThreadInfo   info;
     info.cpu_info          = &cpu_info();
-    info.num_threads       = num_threads_to_use;
+    //info.num_threads       = num_threads_to_use;
+    info.num_threads       = workloads.size();  //for some kernels that use the thread_id to split workload instead of window
     unsigned int t         = 0;
     auto         thread_it = _impl->_threads.begin();
     // Set num_threads_to_use - 1 workloads to the threads as the remaining 1 is left to the main thread
@@ -667,7 +664,6 @@ void SmartScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     {
 #endif                                              /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
         process_workloads(workloads, feeder, info); // Main thread processes workloads
-        //set_policy_frequency(4, 2419200);
 #ifndef ARM_COMPUTE_EXCEPTIONS_DISABLED
     }
     catch (...)
@@ -709,36 +705,25 @@ void SmartScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
         if (IScheduler::run_stage_flag) {
             IScheduler::run_processor_time.push_back(max_val);
         }
-        std::printf("wait_latency_curr: %d, sched_latency_curr: %lld, run_processor_time_curr: %d\n", max_val - min_val, duration_sum_workload - max_val, run_stage_flag ? max_val : 0);
-        //IScheduler::workload_time.clear();
-        std::cout << " --------( " << max_val << " --- " << min_val << " )--------"<< std::endl;
-        std::cout << " --------( " << max_val - min_val << " " << duration_sum_workload - max_val << " )--------"<< std::endl;
+        ARM_COMPUTE_LOG_RUNTIME_INFO("wait_latency_curr: " << max_val - min_val << " sched_latency_curr: " << duration_sum_workload - max_val << " run_processor_time_curr: " << (run_stage_flag ? max_val : 0));
+        std::stringstream msg;
+        msg << duration_sum_workload << ", " 
+            << max_val << ","
+            << max_val - min_val << std::endl;
+        write_to_log_file(msg.str());
+        IScheduler::workload_time.clear();
     }
-    /*
-    if(!IScheduler::thread_end_time.empty()) {
-        auto min_val = *std::min_element(IScheduler::thread_end_time.begin(), IScheduler::thread_end_time.end());
-        auto max_val = *std::max_element(IScheduler::thread_end_time.begin(), IScheduler::thread_end_time.end());
-
-        auto thread_wait_time = std::chrono::duration_cast<std::chrono::microseconds>(max_val - min_val).count();
-        auto thread_sched_time = std::chrono::duration_cast<std::chrono::microseconds>(workload_end - max_val).count();
-        IScheduler::thread_wait_latency.push_back(thread_wait_time);
-        //std::cout << " thread--( " << ctime(&max_time_c) << " --- " << ctime(&min_time_c) << "---" << workload_end << " )--------"<< std::endl;
-        */
-        /*
-        auto max_system_time = std::chrono::system_clock::time_point(std::chrono::duration_cast<std::chrono::system_clock::duration>(max_val.time_since_epoch()));
-        auto max_time_c = std::chrono::system_clock::to_time_t(max_system_time);
-        auto min_system_time = std::chrono::system_clock::time_point(std::chrono::duration_cast<std::chrono::system_clock::duration>(min_val.time_since_epoch()));
-        auto min_time_c = std::chrono::system_clock::to_time_t(min_system_time);
-        std::cout << " thread--( " << ctime(&max_time_c) << " --- " << ctime(&min_time_c) << " )--------"<< std::endl;
-        */
-        //std::cout << " thread--( " << thread_wait_time << " " << thread_sched_time << " )--------"<< std::endl;
-    //}
 }
 #endif /* DOXYGEN_SKIP_THIS */
 
 void SmartScheduler::schedule_op(ICPPKernel *kernel, const Hints &hints, const Window &window, ITensorPack &tensors)
 {
+    // if(SmartScheduler::scheduling_mode) {   
+    //     Hints scheduling_hint = Hints(hints.split_dimension(), IScheduler::StrategyHint::DYNAMIC, 256);
+    //     schedule_common(kernel, scheduling_hint, window, tensors);
+    // } else {
     schedule_common(kernel, hints, window, tensors);
+    // }
 }
 
 void SmartScheduler::schedule(ICPPKernel *kernel, const Hints &hints)

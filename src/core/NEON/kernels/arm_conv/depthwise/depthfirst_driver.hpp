@@ -186,6 +186,7 @@ class DepthfirstDriver : public DepthwiseCommon<TInput, TWeight, TOutput>
       n_threads_for_batches = n_threads;
     }
 
+    // std::printf("888 thread_id: %d, n_threads: %d, batches: %d, n_threads_for_batches: %d\n", thread_id, n_threads, args.n_batches, n_threads_for_batches);
     // Progress the pointers for the first batch.
     input_tensor.base += ld_input_batch*thread_id_for_batches;
     output_tensor.base += ld_output_batch*thread_id_for_batches;
@@ -201,6 +202,7 @@ class DepthfirstDriver : public DepthwiseCommon<TInput, TWeight, TOutput>
         // Determine what (if any padding) is required on the top/bottom of
         // this row of the convolution.
         const auto end_output_i = start_output_i + m_strat->get_output_rows();
+        // std::printf("999 thread_id_for_rows: %d, n_threads_for_rows: %d, start_output_i: %d, end_output_i: %d, args.output_rows: %d\n", thread_id_for_rows, n_threads_for_rows, start_output_i, end_output_i, args.output_rows);
         const bool pad_output_bottom = args.output_rows < end_output_i;
 
         const int start_input_i = start_output_i * args.stride_rows - args.padding.top;

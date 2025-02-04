@@ -330,7 +330,6 @@ void CpuDepthwiseConv2dAssemblyWrapperKernel::run_op(ITensorPack &tensors, const
     ARM_COMPUTE_ERROR_ON_NULLPTR(_kernel_asm.get());
     ARM_COMPUTE_ERROR_ON_UNCONFIGURED_KERNEL(this);
     ARM_COMPUTE_UNUSED(window);
-    ARM_COMPUTE_UNUSED(info);
 
     ARM_COMPUTE_ERROR_ON(tensors.empty());
 

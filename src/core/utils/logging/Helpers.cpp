@@ -35,6 +35,7 @@ const std::string &arm_compute::logging::string_from_log_level(LogLevel log_leve
         {LogLevel::INFO, "INFO"},
         {LogLevel::WARN, "WARN"},
         {LogLevel::OFF, "OFF"},
+        {LogLevel::ERROR, "ERROR"},
     };
 
     return log_level_map[log_level];

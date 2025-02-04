@@ -27,6 +27,7 @@
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/Log.h"
+#include "arm_compute/runtime/Logger.h"
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/utils/misc/Utility.h"
 
@@ -87,22 +88,18 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
     unsigned int workload_index = info.thread_id;
     unsigned int thread_id = info.thread_id;
     unsigned int duration = 0;
+
+    auto start = std::chrono::high_resolution_clock::now();
     do
     {
         ARM_COMPUTE_ERROR_ON(workload_index >= workloads.size());
-        auto start = std::chrono::high_resolution_clock::now();
-
         workloads[workload_index](info);
-
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        duration += duration_wl;
     } while (feeder.get_next(workload_index));
-    //std::cout << " job_complete" << info.thread_id << std::endl;
-    //std::cout << " Workload_index  " << workload_index << " end " << workloads.size() << std::endl;
+    auto end = std::chrono::high_resolution_clock::now();
 
-    std::printf("Thread %d: %d\n", thread_id, duration);
-    // std::cout << "Thread " << thread_id << ": " << duration << std::endl;
+    auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    duration += duration_wl;
+    ARM_COMPUTE_LOG_RUNTIME_INFO("Thread " << thread_id << ": " <<  duration);
     /*
     unsigned int workload_index = info.thread_id;
     do

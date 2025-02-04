@@ -244,11 +244,11 @@ bool find_implementation(const GemmArgs &args, const OutputStage &os, const Gemm
     const GemmImplementation<Tlop, Trop, Tret, OutputStage> *saved_impl = nullptr;
     uint64_t best_estimate = 0;
 
-    //std::cout << "Best : -------------" << typeid(Top).name() << "," << typeid(Tret).name() << args._Msize << ", " << args._Nsize << ", " << args._Ksize << ", " << args._nmulti << ", " << args._nbatches << std::endl;
+    // std::cout << "find_implementation : -------------" << typeid(Trop).name() << ", " << typeid(Tret).name() << ", " << args._Msize << ", " << args._Nsize << ", " << args._Ksize << ", " << args._nmulti << ", " << args._nbatches << std::endl;
     for (const GemmImplementation<Tlop, Trop, Tret, OutputStage> *i = gemms; i->method != GemmMethod::DEFAULT; i++) {
         /* Skip if this implementation doesn't support these args. */
         if (!i->do_is_supported(args, os)) {
-            //std::cout << "Best : " << i->name << " Unsupported" << std::endl;
+            // std::cout << "Unsupported: " << i->name << std::endl;
             continue;
         }
 
@@ -260,13 +260,13 @@ bool find_implementation(const GemmArgs &args, const OutputStage &os, const Gemm
 
         /* Skip if a filter is to be applied and it doesn't match. */
         if (cfg && cfg->filter != "" && !strstr(i->name, cfg->filter.c_str())) {
-            //std::cout << "Best : " << i->name << " filter unmatch" << std::endl;
+            // std::cout << "filter unmatch: " << i->name << std::endl;
             continue;
         }
 
         /* Test the cycle estimate */
         uint64_t estimate = i->do_cycle_estimate(args, os);
-        //std::cout << "Best : " << i->name << " , " << estimate << std::endl;
+        // std::cout << "Impl Name : " << i->name << " , " << estimate << std::endl;
 
         /* Short circuit - if the estimate is zero, return this one immediately. */
         if (estimate==0) {
@@ -274,12 +274,12 @@ bool find_implementation(const GemmArgs &args, const OutputStage &os, const Gemm
             return true;
         }
 
-        /*
-        if (strcmp(i->name, "a64_hybrid_fp32_mla_6x16") == 0) {
-            impl=i;
-            return true;
-        }
-        */
+        // if (strcmp(i->name, "a64_hybrid_fp32_mla_6x16") == 0) {
+        // //if (strcmp(i->name, "a64_sgemm_8x12") == 0) {
+        //     std::cout << "Best IPick : " << i->name << std::endl;
+        //     impl=i;
+        //     return true;
+        // }
 
         /* Otherwise, remember this is our best so far if we don't yet have
          * a valid candidate, or we beat the estimate.  */
@@ -291,6 +291,7 @@ bool find_implementation(const GemmArgs &args, const OutputStage &os, const Gemm
 
     /* Return whichever method gave the best estimate. */
     if (saved_impl != nullptr) {
+        // std::cout << "Best Pick : " << saved_impl->name << std::endl;
         impl = saved_impl;
         return true;
     }
