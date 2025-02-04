@@ -28,6 +28,8 @@
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/NEON/NEScheduler.h"
+#include "arm_compute/runtime/CPP/SmartScheduler.h"
+#include "arm_compute/runtime/IScheduler.h"
 
 #include "src/common/utils/Log.h"
 #include "src/core/NEON/kernels/NEFuseBatchNormalizationKernel.h"
@@ -76,6 +78,20 @@ Status NEFuseBatchNormalization::validate(const ITensorInfo         *input_weigh
 
 void NEFuseBatchNormalization::run()
 {
-    NEScheduler::get().schedule(_fuse_bn_kernel.get(), Window::DimY);
+    if(SmartScheduler::scheduling_mode) {
+        auto num_w = _fuse_bn_kernel->window().num_iterations(Window::DimW);
+        // auto num_x = _fuse_bn_kernel->window().num_iterations(Window::DimX);
+        // 4 is because 128bits / fp32 = 4
+        if(num_w > 1) {
+            IScheduler::Hints scheduling_hint = IScheduler::Hints(Window::DimW, IScheduler::StrategyHint::DYNAMIC, num_w / 8);
+            NEScheduler::get().schedule(_fuse_bn_kernel.get(), scheduling_hint);
+        } else {
+            NEScheduler::get().schedule(_fuse_bn_kernel.get(), Window::DimW);
+            // IScheduler::Hints scheduling_hint = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, num_x / 4);
+            // NEScheduler::get().schedule(_fuse_bn_kernel.get(), scheduling_hint);
+        }
+    } else {
+        NEScheduler::get().schedule(_fuse_bn_kernel.get(), Window::DimY);
+    }
 }
 } // namespace arm_compute
