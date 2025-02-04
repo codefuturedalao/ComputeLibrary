@@ -94,6 +94,7 @@ void GraphManager::finalize_graph(Graph &graph, GraphContext &ctx, PassManager &
 
     // Configure all nodes
     std::cout << "\033[1;31m+++++++++++++++ Configuration Stage +++++++++++++++++\033[0m\n" << std::endl;
+    begin_trace_marker("Configuration Stage");
     auto start = std::chrono::high_resolution_clock::now();
     auto workload = detail::configure_all_nodes(graph, ctx, topological_sorted_nodes);
     ARM_COMPUTE_ERROR_ON_MSG(workload.tasks.empty(), "Could not configure all nodes!");
@@ -101,19 +102,23 @@ void GraphManager::finalize_graph(Graph &graph, GraphContext &ctx, PassManager &
     auto end = std::chrono::high_resolution_clock::now();
     auto duration_run = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     std::cout << " Configuration Time: " << duration_run << std::endl;
+    end_trace_marker();
     // Allocate const tensors and call accessors
     detail::allocate_const_tensors(graph);
     detail::call_all_const_node_accessors(graph);
 
     // Prepare graph
     std::cout << "\033[1;31m+++++++++++++++ Prepare Stage +++++++++++++++++\033[0m\n" << std::endl;
+    begin_trace_marker("Prepare Stage");
     start = std::chrono::high_resolution_clock::now();
     detail::prepare_all_tasks(workload);
     end = std::chrono::high_resolution_clock::now();
     duration_run = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     std::cout << " Prepare Time: " <<  duration_run << std::endl;
+    end_trace_marker();
 
     std::cout << "\033[1;31m+++++++++++++++ Allocation Stage +++++++++++++++++\033[0m\n" << std::endl;
+    begin_trace_marker("Allocation Stage");
     start = std::chrono::high_resolution_clock::now();
 
     // Setup tensor memory (Allocate all tensors or setup transition manager)
@@ -128,7 +133,7 @@ void GraphManager::finalize_graph(Graph &graph, GraphContext &ctx, PassManager &
     end = std::chrono::high_resolution_clock::now();
     duration_run = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     std::cout << " Allocation Time: " << duration_run << std::endl;
-
+    end_trace_marker();
     // Finalize Graph context
     ctx.finalize();
 

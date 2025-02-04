@@ -26,6 +26,15 @@
 
 #include "arm_compute/graph/Graph.h"
 #include "arm_compute/graph/PassManager.h"
+#include <chrono>
+#include <ctime>
+#include <iostream>
+#include <sstream>
+//#include <thread>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#define gettid() syscall(SYS_gettid)
 
 namespace arm_compute
 {
@@ -33,6 +42,46 @@ namespace graph
 {
 // Forward Declaration
 class GraphContext;
+
+static int trace_marker_fd = open("/sys/kernel/tracing/trace_marker", O_WRONLY);
+static bool ftrace_flag = true;
+inline void begin_trace_marker(const std::string & message) {
+    if(!ftrace_flag){ 
+        return;
+    }
+    std::stringstream ss;
+    pid_t tid = getpid();
+    ss << "B|" << tid << "|" << message;
+    char buffer[128];
+    int  len = 0;
+
+    len = snprintf(buffer, 128, "%s", ss.str().c_str()); 
+    int len_written;
+    if((len_written = write(trace_marker_fd, buffer, len)) != len)
+    {
+        std::cout <<  len_written << " != " << len << std::endl;
+        std::cout << "Failed to open trace_marker file" << std::endl;
+    }
+}
+
+inline void end_trace_marker() {
+    if(!ftrace_flag){ 
+        return;
+    }
+    std::stringstream ss;
+    pid_t tid = getpid();
+    ss << "E|" << tid;
+    char buffer[128];
+    int  len = 0;
+
+    len = snprintf(buffer, 128, "%s", ss.str().c_str()); 
+    int len_written;
+    if((len_written = write(trace_marker_fd, buffer, len)) != len)
+    {
+        std::cout <<  len_written << " != " << len << std::endl;
+        std::cout << "Failed to open trace_marker file" << std::endl;
+    }
+}
 
 inline bool is_utility_node(INode *node)
 {
