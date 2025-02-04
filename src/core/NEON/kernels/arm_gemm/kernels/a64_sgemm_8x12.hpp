@@ -118,7 +118,6 @@ public:
 
             case CPUModel::A55r1:
                 kernel = a64_sgemm_asimd_8x12_a55r1;
-                kernel = a64_sgemm_asimd_8x12_x1;
                 break;
 
             case CPUModel::X1:

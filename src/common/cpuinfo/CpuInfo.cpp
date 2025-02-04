@@ -347,6 +347,11 @@ uint64_t get_sve_feature_reg()
 
 CpuInfo::CpuInfo(CpuIsaInfo isa, std::vector<CpuModel> cpus) : _isa(std::move(isa)), _cpus(std::move(cpus))
 {
+    for(unsigned int j = 0; j < _cpus.size(); ++j)
+    {
+        const CPUModel model = _cpus[j];
+        std::printf("CPU%d: %s\n", j, cpuinfo::cpu_model_to_string(model).c_str());
+    }
 }
 
 CpuInfo CpuInfo::build()

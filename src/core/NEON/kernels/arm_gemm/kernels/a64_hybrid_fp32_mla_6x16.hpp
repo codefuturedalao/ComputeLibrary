@@ -102,11 +102,10 @@ public:
     {
         switch(ci->get_cpu_model()) {
             default:
-                //kernel=a64_hybrid_fp32_mla_6x16_a55;
                 break;
             case CPUModel::A55r1:
             case CPUModel::A53:
-                //kernel=a64_hybrid_fp32_mla_6x16_a55;
+                kernel=a64_hybrid_fp32_mla_6x16_a55;
                 break;
         }
     }
