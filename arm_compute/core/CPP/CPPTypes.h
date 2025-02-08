@@ -198,6 +198,7 @@ struct ThreadInfo
 {
     int            thread_id{0};
     int            num_threads{1};
+    int            num_workloads{1};
     const CPUInfo *cpu_info{nullptr};
 };
 } // namespace arm_compute

@@ -24,16 +24,19 @@
 
 #pragma once
 
+#include "src/core/CPP/Validate.h"
 #include "arm_gemm.hpp"
 #include "common.hpp"
 #include <cstddef>
 #include <tuple>
+#include "arm_compute/core/CPP/ICPPKernel.h"
 
 namespace arm_conv
 {
 namespace depthwise
 {
 using arm_gemm::Nothing;
+using arm_compute::ThreadInfo;
 
 enum class DepthwiseMethod
 {
@@ -78,14 +81,19 @@ public:
 
     // Determine the amount of working space required
     virtual size_t get_working_size(unsigned int n_threads) const = 0;
+    
+    virtual size_t get_mws(const CPUInfo &platform, size_t thread_count) const {
+        ARM_COMPUTE_UNUSED(thread_count);
+        ARM_COMPUTE_UNUSED(platform);
+        return arm_compute::ICPPKernel::default_mws;
+    }
 
     // Execute the convolution over the specified area of memory.
     virtual void execute(const void  *input,      // Pointer to input tensor
                          const void  *parameters, // Packed parameters buffer
                          void        *output,
                          void        *working_space,
-                         unsigned int thread_id,
-                         unsigned int n_threads) const = 0;
+                         const ThreadInfo & info) const = 0;
 
     virtual void execute(const void  *input,
                          size_t       ld_input_col,
@@ -97,8 +105,7 @@ public:
                          size_t       ld_output_row,
                          size_t       ld_output_batch,
                          void        *working_space,
-                         unsigned int thread_id,
-                         unsigned int n_threads) const = 0;
+                         const ThreadInfo & info) const = 0;
 
     virtual void execute(unsigned int batches,
                          unsigned int input_height,
@@ -117,8 +124,7 @@ public:
                          size_t       ld_output_row,
                          size_t       ld_output_batch,
                          void        *working_space,
-                         unsigned int thread_id,
-                         unsigned int n_threads) const = 0;
+                         const ThreadInfo & info) const = 0;
 };
 
 // To handle a dilation factor of D execute the kernel once for each d in

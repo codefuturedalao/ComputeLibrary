@@ -146,7 +146,7 @@ ExecutionWorkload configure_all_nodes(Graph &g, GraphContext &ctx, const std::ve
         auto node = g.node(node_id);
         if (node != nullptr)
         {
-            //std::cout << "Configure node --> " << "[" << node->id() << "] "<< NodeTypeStrings[int(node->type())] << " " << node->name() << std::endl;
+            // std::cout << "Configure node --> " << "[" << node->id() << "] "<< NodeTypeStrings[int(node->type())] << " " << node->name() << std::endl;
             Target                     assigned_target = node->assigned_target();
             backends::IDeviceBackend  &backend         = backends::BackendRegistry::get().get_backend(assigned_target);
             std::unique_ptr<IFunction> func            = backend.configure_node(*node, ctx);

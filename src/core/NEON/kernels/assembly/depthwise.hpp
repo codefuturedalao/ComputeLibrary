@@ -209,13 +209,17 @@ public:
             m_name = name;
         }
     }
+    size_t get_mws(const CPUInfo &platform, size_t thread_count) const override {
+        ARM_COMPUTE_UNUSED(thread_count);
+        ARM_COMPUTE_UNUSED(platform);
+        return arm_compute::ICPPKernel::default_mws;
+    }
 
     void execute(const void *const  input,
                  const void *const  parameters,
                  void *const        output,
                  void *const        working_space,
-                 const unsigned int thread_id,
-                 const unsigned int n_threads) const override final
+                 const ThreadInfo & info) const override final
     {
         const size_t ld_input_col    = m_args.input_channels;
         const size_t ld_input_row    = ld_input_col * m_args.input_cols;
@@ -225,7 +229,7 @@ public:
         const size_t ld_output_batch = ld_output_row * m_args.output_rows;
 
         execute(input, ld_input_col, ld_input_row, ld_input_batch, parameters, output, ld_output_col, ld_output_row,
-                ld_output_batch, working_space, thread_id, n_threads);
+                ld_output_batch, working_space, info);
     }
 
     void execute(const void *const  input,
@@ -238,12 +242,11 @@ public:
                  size_t             ld_output_row,
                  size_t             ld_output_batch,
                  void *const        working_space,
-                 const unsigned int thread_id,
-                 const unsigned int n_threads) const override final
+                 const ThreadInfo & info) const override final
     {
         execute(m_args.n_batches, m_args.input_rows, m_args.input_cols, m_args.input_channels, m_args.padding, input,
                 ld_input_col, ld_input_row, ld_input_batch, parameters, m_args.output_rows, m_args.output_cols, output,
-                ld_output_col, ld_output_row, ld_output_batch, working_space, thread_id, n_threads);
+                ld_output_col, ld_output_row, ld_output_batch, working_space, info);
     }
 
     void execute(unsigned int         batches,
@@ -263,8 +266,7 @@ public:
                  size_t               ld_output_row,
                  size_t               ld_output_batch,
                  void                *working_space,
-                 unsigned int         thread_id,
-                 unsigned int         n_threads) const override final
+                 const ThreadInfo & info) const override final
     {
         // Construct a new set of arguments to reflect that we might have been
         // passed different input/output tensors. Dilation is handled at this
@@ -279,6 +281,7 @@ public:
         args.padding        = padding;
         args.dilation_rows = args.dilation_cols = 1;
 
+        // std::printf("111 ld_input_col, ld_input_row, ld_output_col, ld_output_row: %zu, %zu, %zu, %zu\n", ld_input_col, ld_input_row, ld_output_col, ld_output_row);
         auto ld_input_col_d  = ld_input_col * m_args.dilation_cols;
         auto ld_input_row_d  = ld_input_row * m_args.dilation_rows;
         auto ld_output_col_d = ld_output_col * m_args.dilation_cols;
@@ -308,9 +311,10 @@ public:
 
                     if (args.output_cols)
                     {
+                        //TODO: Add ftrace to look why the threads cannot parallelize well 
                         this->execute_internal(args, input_col, ld_input_col_d, ld_input_row_d, ld_input_batch,
                                                parameters, output_col, ld_output_col_d, ld_output_row_d,
-                                               ld_output_batch, working_space, thread_id, n_threads);
+                                               ld_output_batch, working_space, info);
                     }
                 }
             }
@@ -329,8 +333,7 @@ protected:
                                   size_t               ld_output_row,
                                   size_t               ld_output_batch,
                                   void                *working_space,
-                                  unsigned int         thread_id,
-                                  unsigned int         n_threads) const = 0;
+                                  const ThreadInfo & info) const = 0;
 
     virtual bool uses_premultiply() const
     {

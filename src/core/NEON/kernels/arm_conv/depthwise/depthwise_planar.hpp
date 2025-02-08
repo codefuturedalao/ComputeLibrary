@@ -362,11 +362,12 @@ class DepthwisePlanar : public DepthwiseCommon<TInput, TWeight, TOutput>
     size_t ld_output_row,
     size_t ld_output_batch,
     void *working_space,
-    unsigned int thread_id,
-    unsigned int n_threads
+    const ThreadInfo & info
   ) const override
   {
     // Get and initialise the working space for this thread.
+    unsigned int thread_id = info.thread_id;
+    unsigned int n_threads = info.num_threads;
     void *thread_working_space =
       static_cast<uint8_t *>(working_space) + thread_id * this->get_working_size_per_thread();
     this->initialise_working_space(thread_working_space);

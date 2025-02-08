@@ -26,6 +26,7 @@
 
 #include "arm_compute/core/ITensorInfo.h"
 #include "arm_compute/runtime/NEON/NEScheduler.h"
+#include "arm_compute/runtime/CPP/SmartScheduler.h"
 
 #include "src/common/utils/Log.h"
 #include "src/core/CPP/Validate.h"
@@ -111,8 +112,13 @@ void CpuDepthwiseConv2dAssemblyDispatch::run(ITensorPack &tensors)
     // Split over rows (z) if there's more than 1, otherwise batches (w). This logic
     // corresponds to the threading strategy in DepthFirstDriver::execute_internal
     auto split_dimension = _pImpl->asm_kernel->window().num_iterations(Window::DimZ) != 1 ? Window::DimZ : Window::DimW;
-
-    NEScheduler::get().schedule_op(_pImpl->asm_kernel.get(), split_dimension, _pImpl->asm_kernel->window(), tensors);
+    auto iterations = _pImpl->asm_kernel->window().num_iterations(split_dimension);
+    if (SmartScheduler::scheduling_mode) {
+        IScheduler::Hints scheduling_hint = IScheduler::Hints(split_dimension, IScheduler::StrategyHint::DYNAMIC, iterations);
+        NEScheduler::get().schedule_op(_pImpl->asm_kernel.get(), scheduling_hint, _pImpl->asm_kernel->window(), tensors);
+    } else {
+        NEScheduler::get().schedule_op(_pImpl->asm_kernel.get(), split_dimension, _pImpl->asm_kernel->window(), tensors);
+    }
 }
 
 void CpuDepthwiseConv2dAssemblyDispatch::prepare(ITensorPack &tensors)

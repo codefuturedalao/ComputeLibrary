@@ -146,6 +146,13 @@ class DepthfirstDriver : public DepthwiseCommon<TInput, TWeight, TOutput>
     }
   }
 
+  size_t get_mws(const CPUInfo &platform, size_t thread_count) const override
+  {
+    ARM_COMPUTE_UNUSED(thread_count);
+    ARM_COMPUTE_UNUSED(platform);
+    return m_strat->get_output_rows();
+  }
+
   void execute_internal(
     const DepthwiseArgs &args,
     const void *input,
@@ -158,14 +165,18 @@ class DepthfirstDriver : public DepthwiseCommon<TInput, TWeight, TOutput>
     size_t ld_output_row,
     size_t ld_output_batch,
     void *working_space,
-    unsigned int thread_id,
-    unsigned int n_threads
+    const ThreadInfo & info
   ) const override
   {
     // Get and initialise the working space for this thread.
+    unsigned int thread_id = info.thread_id;
+    unsigned int n_threads = info.num_threads;
+    unsigned int n_workloads = info.num_workloads;
+    // std::printf("000 thread_id: %d, n_threads: %d\n", thread_id, n_threads);
     void *thread_working_space =
-      static_cast<uint8_t *>(working_space) + thread_id * this->get_working_size_per_thread();
+      static_cast<uint8_t *>(working_space) + (thread_id % n_threads) * this->get_working_size_per_thread();
     this->initialise_working_space(thread_working_space);
+    // std::printf("222 thread_id: %d, n_threads: %d\n", thread_id, n_threads);
 
     // Construct convenient representations of the input/output tensors.
     TensorSpec<const TInput *> input_tensor(reinterpret_cast<const TInput *>(input), ld_input_row, ld_input_col);
@@ -176,16 +187,18 @@ class DepthfirstDriver : public DepthwiseCommon<TInput, TWeight, TOutput>
     // By default we parallelize over the rows, but if there's only 1 row, we
     // try to parallize over batches
     auto thread_id_for_rows = thread_id;
-    auto n_threads_for_rows = n_threads;
+    auto n_threads_for_rows = n_workloads;
     auto thread_id_for_batches = 0;
     auto n_threads_for_batches = 1;
     if (args.output_rows == 1) {
       thread_id_for_rows = 0;
       n_threads_for_rows = 1;
       thread_id_for_batches = thread_id;
-      n_threads_for_batches = n_threads;
+      n_threads_for_batches = n_workloads;
     }
 
+    // std::printf("ld_input_row, ld_input_col, ld_output row, ld_output col: %zu, %zu, %zu, %zu\n", ld_input_row, ld_input_col, ld_output_row, ld_output_col);
+    // std::printf("ld_input_batch, ld_output_batch: %zu, %zu\n", ld_input_batch, ld_output_batch);
     // std::printf("888 thread_id: %d, n_threads: %d, batches: %d, n_threads_for_batches: %d\n", thread_id, n_threads, args.n_batches, n_threads_for_batches);
     // Progress the pointers for the first batch.
     input_tensor.base += ld_input_batch*thread_id_for_batches;
@@ -202,7 +215,7 @@ class DepthfirstDriver : public DepthwiseCommon<TInput, TWeight, TOutput>
         // Determine what (if any padding) is required on the top/bottom of
         // this row of the convolution.
         const auto end_output_i = start_output_i + m_strat->get_output_rows();
-        // std::printf("999 thread_id_for_rows: %d, n_threads_for_rows: %d, start_output_i: %d, end_output_i: %d, args.output_rows: %d\n", thread_id_for_rows, n_threads_for_rows, start_output_i, end_output_i, args.output_rows);
+        // std::printf("999 thread_id_for_rows: %d, start_output_i: %d, end_output_i: %d, get_output_rows: %d, args.output_rows: %d\n", thread_id_for_rows, start_output_i, end_output_i, m_strat->get_output_rows() , args.output_rows);
         const bool pad_output_bottom = args.output_rows < end_output_i;
 
         const int start_input_i = start_output_i * args.stride_rows - args.padding.top;
@@ -288,6 +301,7 @@ class DepthfirstDriver : public DepthwiseCommon<TInput, TWeight, TOutput>
       output_tensor.base += ld_output_batch*n_threads_for_batches;
     }
   }
+
 
   public:
   DepthfirstDriver(IDepthfirstStrategy *strategy, const DepthwiseArgs &args)

@@ -355,8 +355,9 @@ void CpuDepthwiseConv2dAssemblyWrapperKernel::run_op(ITensorPack &tensors, const
     const size_t ld_dst_row   = ld_dst_col * (dst_shape[1] + dst_padding.top + dst_padding.bottom);
     const size_t ld_dst_batch = ld_dst_row * dst_shape[2];
 
+    //use self created execute function to make sure the depthwise kernel is executed correctly in dynamic scheduling mode
     _kernel_asm->execute(src_ptr, ld_src_col, ld_src_row, ld_src_batch, parameters_ptr, dst_ptr, ld_dst_col, ld_dst_row,
-                         ld_dst_batch, working_space, info.thread_id, info.num_threads);
+                         ld_dst_batch, working_space, info);
 }
 
 void CpuDepthwiseConv2dAssemblyWrapperKernel::pack_parameters(
@@ -390,7 +391,8 @@ size_t CpuDepthwiseConv2dAssemblyWrapperKernel::get_mws(const CPUInfo &platform,
     ARM_COMPUTE_UNUSED(thread_count);
     ARM_COMPUTE_UNUSED(platform);
 
-    return ICPPKernel::default_mws;
+    return _kernel_asm->get_mws(platform, thread_count);
+    //return ICPPKernel::default_mws;
 }
 } // namespace kernels
 } // namespace cpu
