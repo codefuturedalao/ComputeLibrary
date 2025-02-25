@@ -81,6 +81,7 @@ CPUScheduler scheduler_from_name(const std::string &name)
         {"st", CPUScheduler::ST},
         {"cpp", CPUScheduler::CPP},
         {"omp", CPUScheduler::OMP},
+        {"asymo", CPUScheduler::ASYMO},
         {"custom", CPUScheduler::CUSTOM},
     };
 #ifndef ARM_COMPUTE_EXCEPTIONS_DISABLED

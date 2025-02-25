@@ -200,26 +200,51 @@ inline constexpr size_t Window::num_iterations(size_t dimension) const
     return (_dims.at(dimension).end() - _dims.at(dimension).start()) / _dims.at(dimension).step();
 }
 
-inline bool Window::set_policy_frequency(int policy_idx, int freq) const {
-    std::string str = "/sys/devices/system/cpu/cpufreq/policy" + std::to_string(policy_idx) + "/scaling_max_freq";
-    std::ofstream file(str);
-
-    if (!file.is_open()) {
-        std::cerr << "Failed to open " << str << std::endl;
-        return false;
+inline std::vector<Window> Window::split_windows(size_t dimension, size_t total) const
+{
+    ARM_COMPUTE_ERROR_ON(dimension >= Coordinates::num_max_dimensions);
+    
+    std::vector<Window> windows(total);
+    
+    // 计算迭代次数和工作分配
+    const int num_it = num_iterations(dimension);
+    const int rem    = num_it % total;
+    const int work   = num_it / total;
+    
+    // 获取维度的基本信息
+    const int start = _dims[dimension].start();
+    const int step  = _dims[dimension].step();
+    const int end   = _dims[dimension].end();
+    
+    // 一次性为所有窗口设置相同维度的值
+    for (size_t w = 0; w < total; ++w)
+    {
+        for (size_t d = 0; d < Coordinates::num_max_dimensions; ++d)
+        {
+            if (d != dimension)
+            {
+                windows[w].set(d, _dims[d]);
+            }
+        }
     }
-
-    file << freq;
-
-    file.close();
-
-    if(!file) {
-        //std::cerr << "Failed to write to " << str << std::endl;
-        return false;
-    } else {
-        //std::cout << "Successfully wrote " << freq << " to " << str << std::endl;
-        return true;
+    
+    // 为每个窗口计算分割维度的值
+    int current_start = start;
+    for (size_t w = 0; w < total; ++w)
+    {
+        int current_work = work;
+        if (static_cast<int>(w) < rem)
+        {
+            ++current_work;
+        }
+        
+        int current_end = std::min(end, current_start + current_work * step);
+        windows[w].set(dimension, Dimension(current_start, current_end, step));
+        
+        current_start = current_end;
     }
+    
+    return windows;
 }
 
 inline Window Window::split_window(size_t dimension, size_t id, size_t total) const

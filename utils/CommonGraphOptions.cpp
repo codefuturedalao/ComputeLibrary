@@ -165,6 +165,7 @@ CommonGraphOptions::CommonGraphOptions(CommandLineParser &parser)
         CPUScheduler::ST,
         CPUScheduler::CPP,
         CPUScheduler::OMP,
+        CPUScheduler::ASYMO,
         CPUScheduler::CUSTOM,
     };
 

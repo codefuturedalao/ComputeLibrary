@@ -285,6 +285,8 @@ public:
      * @return The subwindow "id" out of "total"
      */
     Window split_window(size_t dimension, size_t id, size_t total) const;
+
+    std::vector<Window> split_windows(size_t dimension, size_t total) const;
     /** First 1D slice of the window
      *
      * @return The first slice of the window.
@@ -457,7 +459,6 @@ private:
      */
     template <unsigned int window_dimension>
     bool slide_window_slice(Window &slice) const;
-    bool set_policy_frequency(int policy_idx, int freq) const;
 
 private:
     std::array<Dimension, Coordinates::num_max_dimensions> _dims;

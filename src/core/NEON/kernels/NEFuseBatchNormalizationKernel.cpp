@@ -306,6 +306,11 @@ Status NEFuseBatchNormalizationKernel::validate(const ITensorInfo         *input
     return Status{};
 }
 
+bool NEFuseBatchNormalizationKernel::can_merge_window() const
+{
+    return false;
+}
+
 void NEFuseBatchNormalizationKernel::run(const Window &window, const ThreadInfo &info)
 {
     ARM_COMPUTE_UNUSED(info);

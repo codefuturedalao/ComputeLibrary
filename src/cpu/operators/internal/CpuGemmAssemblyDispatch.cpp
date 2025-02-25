@@ -25,6 +25,7 @@
 
 #include "arm_compute/runtime/NEON/NEScheduler.h"
 #include "arm_compute/runtime/CPP/SmartScheduler.h"
+#include "arm_compute/core/Log.h"
 
 #include "src/core/CPP/Validate.h"
 #include "src/core/helpers/MemoryHelpers.h"
@@ -92,12 +93,18 @@ void run_parallel_pretranspose_B_array(arm_gemm::GemmCommon<TypeInput, TypeWeigh
     ARM_COMPUTE_ERROR_ON(num_threads == 0);
     // The window size is also the total workload size
     const unsigned int wsize = gemm_asm->get_B_pretranspose_window_size();
-
-    std::vector<IScheduler::Workload> workloads(num_threads);
+    
+    unsigned int num_threads_to_use = 0;
+    if(SmartScheduler::scheduling_mode) {
+        num_threads_to_use = 32;
+    } else {
+        num_threads_to_use = num_threads;
+    }
+    std::vector<IScheduler::Workload> workloads(num_threads_to_use);
     //std::cout << "winsize " << wsize << std::endl;
-    for (unsigned int t = 0; t < num_threads; ++t)
+    for (unsigned int t = 0; t < num_threads_to_use; ++t)
     {
-        if(num_threads == 4 && wsize >= (unsigned int)IScheduler::num_it && IScheduler::sw_flag == true) {
+        if(num_threads_to_use == 4 && wsize >= (unsigned int)IScheduler::num_it && IScheduler::sw_flag == true) {
             workloads[t] = [=](const ThreadInfo &info)
             {
                 int capacity_arg = IScheduler::capacity_arg_tagged;
@@ -151,24 +158,10 @@ void run_parallel_pretranspose_B_array(arm_gemm::GemmCommon<TypeInput, TypeWeigh
         } else {
             workloads[t] = [=](const ThreadInfo &info)
             {
-                const unsigned int start = (info.thread_id * wsize) / num_threads;
-                const unsigned int end   = ((info.thread_id + 1) * wsize) / num_threads;
+                const unsigned int start = (info.thread_id * wsize) / num_threads_to_use;
+                const unsigned int end   = ((info.thread_id + 1) * wsize) / num_threads_to_use;
 
-                /*
-                //DVFS
-                if(num_threads == 4) {  //wsize < 4
-                    switch(info.thread_id){
-                        case 0:
-                        case 1:
-                            set_policy_frequency(4, 940800);
-                            break;
-                        case 2:
-                        case 3:
-                            set_policy_frequency(0, 1785600);
-                            break;
-                    } 
-                }
-                */
+//                std::printf("wsize: %d, thread_id: %d, start: %d, end: %d\n", wsize, info.thread_id, start, end);
 
                 if (start < end)
                 {
@@ -235,7 +228,7 @@ IScheduler::Hints scheduling_hint_heuristic(arm_gemm::GemmMethod method, DataTyp
     const int         granule_threshold = 200;
     IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX);
     if (SmartScheduler::scheduling_mode) {
-        scheduling_hint = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, 256);
+        scheduling_hint = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, 128);
         //std::cout << "CpuGemmAssemblyDispatch scheduling_hint_dynamic" << std::endl;
     }
     if (method == arm_gemm::GemmMethod::GEMM_INTERLEAVED && data_type == DataType::F32)
@@ -260,7 +253,6 @@ IScheduler::Hints scheduling_hint_heuristic(arm_gemm::GemmMethod method, DataTyp
         scheduling_hint =
             IScheduler::Hints(IScheduler::split_dimensions_all, IScheduler::StrategyHint::STATIC, granule_threshold);
     }
-    std::cout << "GemmMethod::NOT_ABOVE" << std::endl;
 
     return scheduling_hint;
 }
@@ -726,7 +718,7 @@ void Fallback<TypeInput, TypeWeight, TypeOutput, OutputStage>::prepare(ITensorPa
 
             ARM_COMPUTE_ERROR_ON(pretranspose.get()->buffer() == nullptr);
             const bool kernel_supports_transpose = _gemm_kernel_asm->B_pretranspose_supports_transpose();
-            std::cout << "start to run parallel pretranspose" << std::endl;
+            ARM_COMPUTE_LOG_INFO_MSG_CORE("start to run parallel pretranspose");
             run_parallel_pretranspose_B_array<TypeInput, TypeWeight, TypeOutput>(
                 _gemm_kernel_asm.get(), pretranspose.get(), in1_ptr, ldb, multi_stride_b,
                 NEScheduler::get().num_threads(), _B_pre_pretranspose_required && kernel_supports_transpose);

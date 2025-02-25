@@ -80,7 +80,13 @@ public:
 
         arm_gemm::ndcoord_t thread_locator{};
 
+
         _kernel->execute(win, thread_locator, info.thread_id);
+    }
+
+    bool can_merge_window() const override
+    {
+        return _kernel->supports_dynamic_scheduling();
     }
 
     // Inherited methods overridden:

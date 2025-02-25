@@ -37,6 +37,7 @@
 
 //TODO: conditional macro
 #include "arm_compute/runtime/CPP/SmartScheduler.h"
+#include "arm_compute/runtime/CPP/AsyMoScheduler.h"
 
 using namespace arm_compute;
 
@@ -59,6 +60,7 @@ std::map<Scheduler::Type, std::unique_ptr<IScheduler>> init()
 {
     std::map<Scheduler::Type, std::unique_ptr<IScheduler>> m;
     m[Scheduler::Type::ST] = std::make_unique<SingleThreadScheduler>();
+    m[Scheduler::Type::ASYMO] = std::make_unique<AsyMoScheduler>();
 #if defined(ARM_COMPUTE_CPP_SCHEDULER)
     m[Scheduler::Type::CPP] = std::make_unique<CPPScheduler>();
 #endif // defined(ARM_COMPUTE_CPP_SCHEDULER)

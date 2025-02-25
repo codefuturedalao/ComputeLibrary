@@ -21,7 +21,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/runtime/CPP/CPPScheduler.h"
+#include "arm_compute/runtime/CPP/AsyMoScheduler.h"
 
 #include "arm_compute/core/CPP/ICPPKernel.h"
 #include "arm_compute/core/Error.h"
@@ -31,10 +31,12 @@
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/utils/misc/Utility.h"
 
+#include "arm_compute/runtime/IScheduler.h"
 #include "support/Mutex.h"
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdlib>
 #include <iostream>
 #include <list>
 #include <memory>
@@ -42,6 +44,9 @@
 #include <system_error>
 #include <thread>
 #include <vector>
+#include <chrono>
+#include <sys/types.h>
+#include <unistd.h>
 
 namespace arm_compute
 {
@@ -88,26 +93,55 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
     ThreadInfo info_local = info;
     unsigned int workload_index = info.thread_id;
     unsigned int thread_id = info.thread_id;
-    unsigned int duration = 0;
+    /* Write the start of process_workloads */
+    std::stringstream ss;
+    pid_t pid = getpid();
+    ss << "B|" << pid << "|" << "process_workloads";
+    IScheduler::write_to_trace_marker(ss.str());
 
-    auto start = std::chrono::high_resolution_clock::now();
+    /* Statistics the time of workload time of each thread*/
+    timespec cpu_start,cpu_end;
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_start) != 0) {
+        perror("clock_gettime");
+        exit(EXIT_FAILURE);
+    }
+
+    /* process the workloads */
+    ARM_COMPUTE_ERROR_ON(thread_id >= IScheduler::workload_time.size());
+    ARM_COMPUTE_ERROR_ON(thread_id >= IScheduler::thread_end_time.size());
     do
     {
+        ss.str(""); 
+        ss << "B|" << pid << "|" << "index " << workload_index;
+        IScheduler::write_to_trace_marker(ss.str());
         ARM_COMPUTE_ERROR_ON(workload_index >= workloads.size());
+        info_local.thread_id = workload_index;  //for some kernels that use the thread_id to split workload instead of window
         workloads[workload_index](info_local);
+        ss.str(""); 
+        ss << "E|" << pid;
+        IScheduler::write_to_trace_marker(ss.str());
     } while (feeder.get_next(workload_index));
-    auto end = std::chrono::high_resolution_clock::now();
 
-    auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    duration += duration_wl;
-    ARM_COMPUTE_LOG_RUNTIME_INFO("Thread " << thread_id << ": " <<  duration);
+    /* Statistics the time of workload time of each thread*/
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_end) != 0) {
+        perror("clock_gettime");
+        exit(EXIT_FAILURE);
+    }
+    auto duration_wl = (cpu_end.tv_sec - cpu_start.tv_sec) * 1000000 + (cpu_end.tv_nsec - cpu_start.tv_nsec) / 1000;
+    IScheduler::workload_time[thread_id] = duration_wl;
+
+    /* Write the end of process_workloads */
+    ss.str(""); 
+    ss << "E|" << pid;
+    IScheduler::write_to_trace_marker(ss.str());
+
+    // std::printf("Thread %d: %d\n", thread_id, IScheduler::workload_time[thread_id]);
 }
 
 /** Set thread affinity. Pin current thread to a particular core
  *
  * @param[in] core_id ID of the core to which the current thread is pinned
  */
-
 void set_thread_affinity(std::string hex_mask)
 {
     if (hex_mask.empty())
@@ -130,11 +164,34 @@ void set_thread_affinity(std::string hex_mask)
             CPU_SET(i, &set);
         }
     }
-    std::cout << "Schedule Thread to " << hex_mask << std::endl;
+    ARM_COMPUTE_LOG_RUNTIME_INFO( "Schedule Thread to " << hex_mask << std::endl);
     ARM_COMPUTE_EXIT_ON_MSG(sched_setaffinity(0, sizeof(set), &set), "Error setting thread affinity");
 #endif /* !defined(__APPLE__) && !defined(__OpenBSD__) */
 }
-/** There are currently 2 scheduling modes supported by CPPScheduler
+
+/** Set thread affinity. Pin current thread to a particular core
+ *
+ * @param[in] core_id ID of the core to which the current thread is pinned
+ */
+/*
+void set_thread_affinity(int core_id)
+{
+    if (core_id < 0)
+    {
+        return;
+    }
+
+#if !defined(_WIN64) && !defined(__APPLE__) && !defined(__OpenBSD__)
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(core_id, &set);
+    ARM_COMPUTE_EXIT_ON_MSG(sched_setaffinity(0, sizeof(set), &set), "Error setting thread affinity");
+#endif 
+*/
+/* !defined(__APPLE__) && !defined(__OpenBSD__) */
+//}
+
+/** There are currently 2 scheduling modes supported by AsyMoScheduler
  *
  * Linear:
  *  The default mode where all the scheduling is carried out by the main thread linearly (in a loop).
@@ -170,7 +227,7 @@ public:
      *
      * @param[in] core_pin Core id to pin the thread on. If negative no thread pinning will take place
      */
-    explicit Thread(std::string core_pin = "");
+    explicit Thread(std::string core_pin = std::string());
 
     Thread(const Thread &)            = delete;
     Thread &operator=(const Thread &) = delete;
@@ -199,6 +256,8 @@ public:
     /** Function ran by the worker thread. */
     void worker_thread();
 
+    void force_schedule(std::string core_pin);
+
     /** Set the scheduling strategy to be linear */
     void set_linear_mode()
     {
@@ -224,6 +283,7 @@ private:
     std::condition_variable            _cv{};
     bool                               _wait_for_work{false};
     bool                               _job_complete{true};
+    bool                               _force_schedule{false};
     std::exception_ptr                 _current_exception{nullptr};
     std::string _core_pin{};
     std::list<Thread>                 *_thread_pool{nullptr};
@@ -234,6 +294,7 @@ private:
 Thread::Thread(std::string core_pin) : _core_pin(core_pin)
 {
     _thread = std::thread(&Thread::worker_thread, this);
+    ARM_COMPUTE_LOG_RUNTIME_INFO( "Create Thread id = " <<  _thread.get_id() << std::endl);
 }
 
 Thread::~Thread()
@@ -274,14 +335,33 @@ std::exception_ptr Thread::wait()
     return _current_exception;
 }
 
+void Thread::force_schedule(std::string core_pin) 
+{
+    {
+        std::lock_guard<std::mutex> lock(_m);
+        _core_pin = core_pin;
+        _force_schedule = true;
+    }
+    _cv.notify_one();
+
+}
+
 void Thread::worker_thread()
 {
-    set_thread_affinity(_core_pin);
+    {
+        std::unique_lock<std::mutex> lock(_m);
+        set_thread_affinity(_core_pin);
+    }
 
     while (true)
     {
         std::unique_lock<std::mutex> lock(_m);
-        _cv.wait(lock, [&] { return _wait_for_work; });
+        _cv.wait(lock, [&] { return _wait_for_work || _force_schedule; });
+        if (_force_schedule) {
+            set_thread_affinity(_core_pin);
+            _force_schedule = false;
+            continue;
+        }
         _wait_for_work = false;
 
         _current_exception = nullptr;
@@ -318,14 +398,16 @@ void Thread::worker_thread()
         }
 #endif /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
         _workloads    = nullptr;
-        _job_complete = true;
+        _job_complete = true;  
+        auto end_time = std::chrono::high_resolution_clock::now();
+        IScheduler::thread_end_time[_info.thread_id] = end_time;
         lock.unlock();
         _cv.notify_one();
     }
 }
 } //namespace
 
-struct CPPScheduler::Impl final
+struct AsyMoScheduler::Impl final
 {
     constexpr static unsigned int m_default_wake_fanout = 4;
     enum class Mode
@@ -342,6 +424,7 @@ struct CPPScheduler::Impl final
     explicit Impl(unsigned int thread_hint)
         : _num_threads(thread_hint), _threads(_num_threads - 1), _mode(Mode::Linear), _wake_fanout(0U)
     {
+        ARM_COMPUTE_LOG_RUNTIME_INFO( "Impl Initializize with " << _num_threads - 1 << " threads in _threads" << std::endl);
         const auto mode_env_v = utility::tolower(utility::getenv("ARM_COMPUTE_CPP_SCHEDULER_MODE"));
         if (mode_env_v == "linear")
         {
@@ -358,22 +441,48 @@ struct CPPScheduler::Impl final
     }
     void set_num_threads(unsigned int num_threads, unsigned int thread_hint)
     {
-        _num_threads = num_threads == 0 ? thread_hint : num_threads;
-        _threads.resize(_num_threads - 1);
+        //ARM_COMPUTE_LOG_RUNTIME_INFO( "Num_threads" << num_threads);
+        //ARM_COMPUTE_LOG_RUNTIME_INFO( "threads_hint" << thread_hint);
+        /* One Big core with three small cores */
+        if (num_threads == 4 && IScheduler::sw_flag) {
+            // Set affinity on worked threads
+            _num_threads = num_threads;
+            _threads.resize(_num_threads - 1);
+            workload_time.resize(_num_threads, 0);
+            thread_end_time.resize(_num_threads);
+
+            set_thread_affinity("10");
+            auto         thread_it = _threads.begin();
+            std::string mask[] = {"20", "08", "04"};
+            for (auto i = 1U; i < _num_threads; ++i, ++thread_it)
+            {
+                thread_it->force_schedule(mask[i - 1]);
+            }
+        } else {
+            _num_threads = num_threads == 0 ? thread_hint : num_threads;
+            ARM_COMPUTE_LOG_RUNTIME_INFO( "[AsyMoScheduler::set_num_threads]---> " << _num_threads << " _num_threads" << std::endl);
+            _threads.resize(_num_threads - 1);
+            workload_time.resize(_num_threads, 0);
+            thread_end_time.resize(_num_threads);
+        }
         auto_switch_mode(_num_threads);
     }
     void set_num_threads_with_affinity(unsigned int num_threads, unsigned int thread_hint, BindFunc func)
     {
         _num_threads = num_threads == 0 ? thread_hint : num_threads;
 
+        ARM_COMPUTE_LOG_RUNTIME_INFO( "[AsyMoScheduler::set_num_threads_with_affinity]---> " << _num_threads << " _num_threads" << std::endl);
         // Set affinity on main thread
         set_thread_affinity(func(0, _num_threads));
 
         // Set affinity on worked threads
-        _threads.clear();
-        for (auto i = 1U; i < _num_threads; ++i)
+        // _threads.clear();
+        _threads.resize(_num_threads - 1);
+
+        auto         thread_it = _threads.begin();
+        for (auto i = 1U; i < _num_threads; ++i, ++thread_it)
         {
-            _threads.emplace_back(func(i, _num_threads));
+            thread_it->force_schedule(func(i, _num_threads));
         }
         auto_switch_mode(_num_threads);
     }
@@ -384,13 +493,13 @@ struct CPPScheduler::Impl final
         {
             set_fanout_mode(m_default_wake_fanout, num_threads_to_use);
             ARM_COMPUTE_LOG_INFO_MSG_WITH_FORMAT_CORE(
-                "Set CPPScheduler to Fanout mode, with wake up fanout : %d and %d threads to use\n",
+                "Set AsyMoScheduler to Fanout mode, with wake up fanout : %d and %d threads to use\n",
                 this->wake_fanout(), num_threads_to_use);
         }
         else // Equivalent to (_forced_mode == ModeToggle::Linear || (_forced_mode == ModeToggle::None && num_threads_to_use <= 8))
         {
             set_linear_mode();
-            ARM_COMPUTE_LOG_INFO_MSG_WITH_FORMAT_CORE("Set CPPScheduler to Linear mode, with %d threads to use\n",
+            ARM_COMPUTE_LOG_INFO_MSG_WITH_FORMAT_CORE("Set AsyMoScheduler to Linear mode, with %d threads to use\n",
                                                       num_threads_to_use);
         }
     }
@@ -405,7 +514,7 @@ struct CPPScheduler::Impl final
     }
     void set_fanout_mode(unsigned int wake_fanout, unsigned int num_threads_to_use)
     {
-        ARM_COMPUTE_ERROR_ON(num_threads_to_use > _threads.size() + 1);
+        ARM_COMPUTE_ERROR_ON(num_threads_to_use > _threads.size() + 2);
         const auto actual_wake_fanout = std::max(2U, std::min(wake_fanout, num_threads_to_use - 1));
         auto       thread_it          = _threads.begin();
         for (auto i = 1U; i < num_threads_to_use; ++i, ++thread_it)
@@ -440,48 +549,59 @@ struct CPPScheduler::Impl final
 
     unsigned int       _num_threads;
     std::list<Thread>  _threads;
+    //int _threads_time[4];
     arm_compute::Mutex _run_workloads_mutex{};
     Mode               _mode{Mode::Linear};
     ModeToggle         _forced_mode{ModeToggle::None};
     unsigned int       _wake_fanout{0};
 };
 
+bool AsyMoScheduler::scheduling_mode = false;           //Control by the cmd parser
+void AsyMoScheduler::set_scheduling_mode(bool scheduling_mode)
+{
+    AsyMoScheduler::scheduling_mode = scheduling_mode;
+    ARM_COMPUTE_LOG_RUNTIME_INFO( "Set scheduling_mode to " << scheduling_mode << std::endl);   
+}
+
 /*
  * This singleton has been deprecated and will be removed in future releases
  */
-CPPScheduler &CPPScheduler::get()
+AsyMoScheduler &AsyMoScheduler::get()
 {
-    static CPPScheduler scheduler;
+    static AsyMoScheduler scheduler;
     return scheduler;
 }
 
-CPPScheduler::CPPScheduler() : _impl(std::make_unique<Impl>(num_threads_hint()))
+AsyMoScheduler::AsyMoScheduler() : _impl(std::make_unique<Impl>(num_threads_hint()))
 {
 }
 
-CPPScheduler::~CPPScheduler() = default;
+AsyMoScheduler::~AsyMoScheduler(){
+    std::printf("AsyMoScheduler destructor\n");
+   _impl-> _threads.clear();
+}
 
-void CPPScheduler::set_num_threads(unsigned int num_threads)
+void AsyMoScheduler::set_num_threads(unsigned int num_threads)
 {
     // No changes in the number of threads while current workloads are running
     arm_compute::lock_guard<std::mutex> lock(_impl->_run_workloads_mutex);
     _impl->set_num_threads(num_threads, num_threads_hint());
 }
 
-void CPPScheduler::set_num_threads_with_affinity(unsigned int num_threads, BindFunc func)
+void AsyMoScheduler::set_num_threads_with_affinity(unsigned int num_threads, BindFunc func)
 {
     // No changes in the number of threads while current workloads are running
     arm_compute::lock_guard<std::mutex> lock(_impl->_run_workloads_mutex);
     _impl->set_num_threads_with_affinity(num_threads, num_threads_hint(), func);
 }
 
-unsigned int CPPScheduler::num_threads() const
+unsigned int AsyMoScheduler::num_threads() const
 {
     return _impl->num_threads();
 }
 
 #ifndef DOXYGEN_SKIP_THIS
-void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
+void AsyMoScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
 {
     // Mutex to ensure other threads won't interfere with the setup of the current thread's workloads
     // Other thread's workloads will be scheduled after the current thread's workloads have finished
@@ -489,6 +609,15 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     // won't interfere each other and deadlock.
     arm_compute::lock_guard<std::mutex> lock(_impl->_run_workloads_mutex);
     const unsigned int num_threads_to_use = std::min(_impl->num_threads(), static_cast<unsigned int>(workloads.size()));
+    if(_impl->num_threads() != workloads.size()) {
+        ARM_COMPUTE_LOG_RUNTIME_INFO( "[AsyMoScheduler::run_workloads]---> " << workloads.size() << " workloads");
+        ARM_COMPUTE_LOG_RUNTIME_INFO( "[AsyMoScheduler::run_workloads]---> " << _impl->num_threads() << " num_threads");
+    }
+    workload_time.resize(num_threads_to_use, 0);
+    workload_time.assign(workload_time.size(), 0);
+    thread_end_time.resize(num_threads_to_use);
+    auto workload_start = std::chrono::high_resolution_clock::now();
+
     if (num_threads_to_use < 1)
     {
         return;
@@ -498,12 +627,12 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     int num_threads_to_start = 0;
     switch (_impl->mode())
     {
-        case CPPScheduler::Impl::Mode::Fanout:
+        case AsyMoScheduler::Impl::Mode::Fanout:
         {
             num_threads_to_start = static_cast<int>(_impl->wake_fanout()) - 1;
             break;
         }
-        case CPPScheduler::Impl::Mode::Linear:
+        case AsyMoScheduler::Impl::Mode::Linear:
         default:
         {
             num_threads_to_start = static_cast<int>(num_threads_to_use) - 1;
@@ -513,13 +642,16 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     ThreadFeeder feeder(num_threads_to_use, workloads.size());
     ThreadInfo   info;
     info.cpu_info          = &cpu_info();
-    info.num_threads       = num_threads_to_use;
+    //info.num_threads       = num_threads_to_use;
+    info.num_threads       = num_threads_to_use;  //for some kernels that use the thread_id to split workload instead of window
+    info.num_workloads= workloads.size();
+
     unsigned int t         = 0;
     auto         thread_it = _impl->_threads.begin();
     // Set num_threads_to_use - 1 workloads to the threads as the remaining 1 is left to the main thread
     for (; t < num_threads_to_use - 1; ++t, ++thread_it)
     {
-        info.thread_id = t;
+        info.thread_id = t + 1;
         thread_it->set_workload(&workloads, feeder, info);
     }
     thread_it = _impl->_threads.begin();
@@ -527,7 +659,8 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     {
         thread_it->start();
     }
-    info.thread_id                    = t; // Set main thread's thread_id
+    //info.thread_id                    = t; // Set main thread's thread_id
+    info.thread_id                    = 0; // make main thread running on the big
     std::exception_ptr last_exception = nullptr;
 #ifndef ARM_COMPUTE_EXCEPTIONS_DISABLED
     try
@@ -540,7 +673,6 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     {
         last_exception = std::current_exception();
     }
-
     try
     {
 #endif /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
@@ -564,17 +696,43 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
         std::cerr << "Caught system_error with code " << e.code() << " meaning " << e.what() << '\n';
     }
 #endif /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
+    //set_policy_frequency(0, 1113600);
+    //set_gpu_clk(345);
+    auto workload_end = std::chrono::high_resolution_clock::now();
+    auto duration_sum_workload = std::chrono::duration_cast<std::chrono::microseconds>(workload_end - workload_start).count();
+    if(!IScheduler::workload_time.empty()) {
+        int min_val = *std::min_element(IScheduler::workload_time.begin(), IScheduler::workload_time.end());
+        int max_val = *std::max_element(IScheduler::workload_time.begin(), IScheduler::workload_time.end());
+        IScheduler::wait_latency.push_back(max_val - min_val);
+        IScheduler::sched_latency.push_back(duration_sum_workload - max_val);
+        if (IScheduler::run_stage_flag) {
+            IScheduler::run_processor_time.push_back(max_val);
+        }
+        ARM_COMPUTE_LOG_RUNTIME_INFO("wait_latency_curr: " << max_val - min_val << " sched_latency_curr: " << duration_sum_workload - max_val << " run_processor_time_curr: " << (run_stage_flag ? max_val : 0));
+        std::stringstream msg;
+        msg << duration_sum_workload << ", " 
+            << max_val << ","
+            << max_val - min_val << std::endl;
+        write_to_log_file(msg.str());
+        IScheduler::workload_time.clear();
+    }
 }
 #endif /* DOXYGEN_SKIP_THIS */
 
-void CPPScheduler::schedule_op(ICPPKernel *kernel, const Hints &hints, const Window &window, ITensorPack &tensors)
+void AsyMoScheduler::schedule_op(ICPPKernel *kernel, const Hints &hints, const Window &window, ITensorPack &tensors)
 {
+    // if(AsyMoScheduler::scheduling_mode) {   
+    //     Hints scheduling_hint = Hints(hints.split_dimension(), IScheduler::StrategyHint::DYNAMIC, 256);
+    //     schedule_common(kernel, scheduling_hint, window, tensors);
+    // } else {
     schedule_common(kernel, hints, window, tensors);
+    // }
 }
 
-void CPPScheduler::schedule(ICPPKernel *kernel, const Hints &hints)
+void AsyMoScheduler::schedule(ICPPKernel *kernel, const Hints &hints)
 {
     ITensorPack tensors;
     schedule_common(kernel, hints, kernel->window(), tensors);
 }
+
 } // namespace arm_compute

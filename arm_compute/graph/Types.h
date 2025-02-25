@@ -120,6 +120,7 @@ enum class CPUScheduler
     ST,    /**< Single thread. */
     CPP,   /**< C++11 threads. */
     OMP,   /**< OpenMP. */
+    ASYMO, /**< AsyMo. */
     CUSTOM /**< Provided by the user. */
 };
 

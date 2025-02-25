@@ -30,6 +30,7 @@
 #include "arm_compute/core/utils/quantization/AsymmHelpers.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/runtime/NEON/NEScheduler.h"
+#include "arm_compute/runtime/CPP/SmartScheduler.h"
 
 #include "src/common/utils/Log.h"
 #include "src/core/helpers/AutoConfiguration.h"
@@ -881,7 +882,12 @@ void CpuGemmConv2d::run(ITensorPack &tensors)
             hint_dim = x_dim;
         }
         ITensorPack pack = {{TensorType::ACL_SRC, src}, {TensorType::ACL_DST, im2col_output.get()}};
-        NEScheduler::get().schedule_op(_im2col_kernel.get(), hint_dim, _im2col_kernel->window(), pack);
+        if (SmartScheduler::scheduling_mode) {
+            IScheduler::Hints scheduling_hint = IScheduler::Hints(hint_dim, IScheduler::StrategyHint::DYNAMIC, 32);
+            NEScheduler::get().schedule_op(_im2col_kernel.get(), scheduling_hint, _im2col_kernel->window(), pack);
+        } else {
+            NEScheduler::get().schedule_op(_im2col_kernel.get(), hint_dim, _im2col_kernel->window(), pack);
+        }
         gemm_input_to_use = im2col_output.get();
     }
 

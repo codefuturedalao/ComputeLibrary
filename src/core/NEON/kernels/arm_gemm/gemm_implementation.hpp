@@ -274,12 +274,12 @@ bool find_implementation(const GemmArgs &args, const OutputStage &os, const Gemm
             return true;
         }
 
-        // if (strcmp(i->name, "a64_hybrid_fp32_mla_6x16") == 0) {
-        // //if (strcmp(i->name, "a64_sgemm_8x12") == 0) {
-        //     std::cout << "Best IPick : " << i->name << std::endl;
-        //     impl=i;
-        //     return true;
-        // }
+        if (strcmp(i->name, "a64_hybrid_fp32_mla_6x16") == 0) {
+        //if (strcmp(i->name, "a64_sgemm_8x12") == 0) {
+            // std::cout << "best ipick : " << i->name << std::endl;
+            impl=i;
+            return true;
+        }
 
         /* Otherwise, remember this is our best so far if we don't yet have
          * a valid candidate, or we beat the estimate.  */

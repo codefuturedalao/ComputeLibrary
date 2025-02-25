@@ -25,6 +25,7 @@
 
 #include "arm_compute/core/Window.h"
 #include "arm_compute/runtime/NEON/NEScheduler.h"
+#include "arm_compute/runtime/CPP/SmartScheduler.h"
 
 #include "src/core/NEON/INEKernel.h"
 
@@ -50,7 +51,12 @@ void INEOperator::run(ITensorPack &tensors)
 
 void INEOperator::run(ITensorPack &tensors, const Window &window)
 {
-    NEScheduler::get().schedule_op(_kernel.get(), Window::DimY, window, tensors);
+    if (SmartScheduler::scheduling_mode) {
+        IScheduler::Hints scheduling_hint = IScheduler::Hints(Window::DimY, IScheduler::StrategyHint::DYNAMIC, 32);
+        NEScheduler::get().schedule_op(_kernel.get(), scheduling_hint, window, tensors);
+    } else {
+        NEScheduler::get().schedule_op(_kernel.get(), Window::DimY, window, tensors);
+    }
 }
 
 void INEOperator::prepare(ITensorPack &constants)

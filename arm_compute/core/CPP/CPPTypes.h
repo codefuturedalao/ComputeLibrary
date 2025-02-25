@@ -25,12 +25,18 @@
 #define ACL_ARM_COMPUTE_CORE_CPP_CPPTYPES_H
 
 #include "arm_compute/core/Error.h"
+//#include "arm_compute/core/DynamicWindow.h"
 
 #include <cstdint>
 #include <memory>
 
 namespace arm_compute
 {
+// 添加前向声明
+class ITensorPack;
+class ICPPKernel;
+class Window;
+
 namespace cpuinfo
 {
 struct CpuIsaInfo;
@@ -196,10 +202,13 @@ private:
 /** Information about executing thread and CPU. */
 struct ThreadInfo
 {
-    int            thread_id{0};
+    int            true_thread_id{0};
+    int            thread_id{0};            //often used as the workload id
     int            num_threads{1};
     int            num_workloads{1};
     const CPUInfo *cpu_info{nullptr};
+    Window* window{nullptr};
 };
+
 } // namespace arm_compute
 #endif // ACL_ARM_COMPUTE_CORE_CPP_CPPTYPES_H

@@ -614,6 +614,7 @@ lib_files += filelist['c_api']['operators']
 # Scheduler infrastructure
 lib_files += filelist['scheduler']['single']
 lib_files += filelist['scheduler']['custom']
+lib_files += filelist['scheduler']['asymo']
 if env['cppthreads']:
      lib_files += filelist['scheduler']['threads']
 if env['openmp']:

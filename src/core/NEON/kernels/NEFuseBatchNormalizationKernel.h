@@ -107,6 +107,8 @@ public:
     // Inherited methods overridden:
     void run(const Window &window, const ThreadInfo &info) override;
 
+    bool can_merge_window() const override;
+
 private:
     const ITensor *_input_weights;
     const ITensor *_input_bias;

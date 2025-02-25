@@ -62,6 +62,11 @@ public:
      * @return True if the windows has been configured
      */
     bool is_window_configured() const;
+    /** Can be merged window in SmartScheduler
+     *
+     * @return True if the windows can be merged
+     */
+    virtual bool can_merge_window() const;
 
 protected:
     /** Configure the kernel's window

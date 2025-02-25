@@ -52,6 +52,11 @@ bool IKernel::is_window_configured() const
     return !((_window.x().start() == _window.x().end()) && (_window.x().end() == 0));
 }
 
+bool IKernel::can_merge_window() const
+{
+    return false;
+}
+
 void IKernel::configure(const Window &window)
 {
     _window = window;

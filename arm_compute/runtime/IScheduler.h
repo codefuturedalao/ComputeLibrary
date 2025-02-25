@@ -118,6 +118,18 @@ public:
         {
             return _strategy;
         }
+
+        /** Set the threshold hint
+         *
+         * @param[in] threshold Prefered threshold to use to split the workload
+         *
+         * @return the Hints object
+         */
+        Hints &set_threshold(int threshold)
+        {
+            _threshold = threshold;
+            return *this;
+        }
         /** Return the granule capping threshold to be used by dynamic scheduling.
          *
          * @return The capping threshold
@@ -133,7 +145,7 @@ public:
         int          _threshold{};
     };
     /** Signature for the workloads to execute */
-    using Workload = std::function<void(const ThreadInfo &)>;
+    using Workload = std::function<void(ThreadInfo &)>;
     static std::mutex mtx;     //file mutex
     static std::ofstream _outputFile;
     static std::ofstream trace_marker;
@@ -257,6 +269,7 @@ protected:
                                       std::size_t       init_num_windows,
                                       const ICPPKernel &kernel,
                                       const CPUInfo    &cpu_info);
+
     /* SmartScheduler */
     std::size_t find_max_num_of_windows(const Window &window);
 

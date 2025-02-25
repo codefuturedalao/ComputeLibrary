@@ -73,10 +73,11 @@ void NEDeviceBackend::setup_backend_context(GraphContext &ctx)
     /**  Set scheduler */
     //Scheduler::set(std::make_shared<SmartScheduler>());
     Scheduler::set(ctx.config().scheduler);
-    if (ctx.config().scheduler == Scheduler::Type::CUSTOM)
+    if (ctx.config().scheduler == Scheduler::Type::CUSTOM || ctx.config().scheduler == Scheduler::Type::ASYMO)
     {
         SmartScheduler::set_scheduling_mode(ctx.config().scheduling_mode);
     }   
+
     // Set number of threads
     if (ctx.config().num_threads >= 0)
     {
