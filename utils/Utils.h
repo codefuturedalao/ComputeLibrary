@@ -92,6 +92,9 @@ public:
     /** Teardown the example. */
     virtual void do_teardown(){};
 
+    virtual std::string name() {
+        return "example";
+    }
     /** Default destructor. */
     virtual ~Example() = default;
 };

@@ -42,6 +42,8 @@
 
 namespace arm_compute
 {
+
+enum class MergeType;
 namespace
 {
 struct FuseBatchNormalizeSelectorData
@@ -309,6 +311,11 @@ Status NEFuseBatchNormalizationKernel::validate(const ITensorInfo         *input
 bool NEFuseBatchNormalizationKernel::can_merge_window() const
 {
     return false;
+}
+
+MergeType NEFuseBatchNormalizationKernel::merge_type() const
+{
+    return MergeType::NONE;
 }
 
 void NEFuseBatchNormalizationKernel::run(const Window &window, const ThreadInfo &info)

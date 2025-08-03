@@ -263,5 +263,13 @@ private:
  */
 int main(int argc, char **argv)
 {
-    return arm_compute::utils::run_example<GraphResNetV1_50Example>(argc, argv);
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    int result = arm_compute::utils::run_example<GraphResNetV1_50Example>(argc, argv);
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration_graph = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "resnet50 main time " << duration_graph << std::endl;
+    
+    return result;
 }

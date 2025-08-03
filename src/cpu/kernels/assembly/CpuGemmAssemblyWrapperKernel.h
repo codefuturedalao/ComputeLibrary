@@ -89,6 +89,10 @@ public:
         return _kernel->supports_dynamic_scheduling();
     }
 
+    MergeType merge_type() const override {
+        return static_cast<MergeType>(_kernel->merge_type());
+    }
+
     // Inherited methods overridden:
     void run_nd(const Window &window, const ThreadInfo &info, const Window &thread_locator) override
     {
@@ -122,6 +126,17 @@ public:
         _kernel = kernel;
 
         Window win = to_window(kernel->get_window_size());
+        
+        // // 遍历每个维度并记录基本信息
+        // for (size_t dim = 0; dim < Coordinates::num_max_dimensions; ++dim)
+        // {
+        //     const auto& dimension = win[dim];
+        //     std::cout << "Dim" << dim << ": start=" << dimension.start() 
+        //               << " end=" << dimension.end() 
+        //               << " step=" << dimension.step()
+        //               << " iterations=" << win.num_iterations(dim);
+        //     std::cout << std::endl;
+        // }
 
         INEKernel::configure(win);
 

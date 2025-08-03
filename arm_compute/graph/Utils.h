@@ -59,7 +59,7 @@ inline void begin_trace_marker(const std::string & message) {
     int len_written;
     if((len_written = write(trace_marker_fd, buffer, len)) != len)
     {
-        std::cout <<  len_written << " != " << len << std::endl;
+        // std::cout <<  len_written << " != " << len << std::endl;
         std::cout << "Failed to open trace_marker file" << std::endl;
     }
 }

@@ -347,11 +347,6 @@ uint64_t get_sve_feature_reg()
 
 CpuInfo::CpuInfo(CpuIsaInfo isa, std::vector<CpuModel> cpus) : _isa(std::move(isa)), _cpus(std::move(cpus))
 {
-    for(unsigned int j = 0; j < _cpus.size(); ++j)
-    {
-        const CPUModel model = _cpus[j];
-        std::printf("CPU%d: %s\n", j, cpuinfo::cpu_model_to_string(model).c_str());
-    }
 }
 
 CpuInfo CpuInfo::build()
@@ -384,6 +379,11 @@ CpuInfo CpuInfo::build()
     std::vector<CpuModel> cpus_model;
     std::transform(std::begin(cpus_midr), std::end(cpus_midr), std::back_inserter(cpus_model),
                    [](uint32_t midr) -> CpuModel { return midr_to_model(midr); });
+
+    for (size_t i = 0; i < cpus_model.size(); i++)
+    {
+        std::cout << "cpu model: " << static_cast<int>(cpus_model[i]) << " midr: " << cpus_midr[i] << std::endl;
+    }
 
     CpuInfo info(isa, cpus_model);
     return info;
@@ -450,14 +450,20 @@ CpuModel CpuInfo::cpu_model(uint32_t cpuid) const
     return CpuModel::GENERIC;
 }
 
+void CpuInfo::set_cpu_id(uint32_t cpuid)
+{
+    _cpu_id = cpuid;
+}
+
 CpuModel CpuInfo::cpu_model() const
 {
 #if defined(_WIN64) || defined(BARE_METAL) || defined(__APPLE__) || defined(__OpenBSD__) || \
     (!defined(__arm__) && !defined(__aarch64__))
     return cpu_model(0);
 #else /* defined(BARE_METAL) || defined(__APPLE__) || defined(__OpenBSD__) || (!defined(__arm__) && !defined(__aarch64__)) */
+    // Usally use the sched_getcpu of main thread and never change after that
     //return cpu_model(sched_getcpu());
-    return cpu_model(0);
+    return cpu_model(_cpu_id);
 #endif /* defined(BARE_METAL) || defined(__APPLE__) || defined(__OpenBSD__) || (!defined(__arm__) && !defined(__aarch64__)) */
 }
 
@@ -526,7 +532,6 @@ uint32_t num_threads_hint()
 
     // Set thread hint
     num_threads_hint = cpus.empty() ? std::thread::hardware_concurrency() : least_frequent_cpu_occurences(cpus);
-    std::cout << "[CpuInfo::num_threads_hint]---> " << num_threads_hint << std::endl;
 #endif /* !defined(BARE_METAL) && !defined(_WIN64) && !defined(ARM_COMPUTE_DISABLE_THREADS_HINT) */
 
     return num_threads_hint;

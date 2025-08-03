@@ -217,6 +217,17 @@ public:
         return c;
     }
 
+    // Kernel dimensions interface implementation  
+    unsigned int get_kernel_output_height() const override {
+        // QuantizeWrapper uses the same dimensions as its wrapped GEMM
+        return _subgemm->get_kernel_output_height();
+    }
+    
+    unsigned int get_kernel_output_width() const override {
+        // QuantizeWrapper uses the same dimensions as its wrapped GEMM  
+        return _subgemm->get_kernel_output_width();
+    }
+
     void update_quantization_parameters(const Requantize32 &re) override {
         _params.bias = re.bias;
         _params.a_offset = re.a_offset;

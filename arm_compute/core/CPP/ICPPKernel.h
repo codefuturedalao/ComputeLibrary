@@ -31,6 +31,8 @@
 
 namespace arm_compute
 {
+// Define MergeType enum to match arm_gemm::MergeType
+
 class Window;
 class ITensor;
 
@@ -109,6 +111,15 @@ public:
      * @return Kernel name
      */
     virtual const char *name() const = 0;
+
+    /** Return the merge type for this kernel
+     *
+     * @return Merge type for window merging
+     */
+    virtual MergeType merge_type() const
+    {
+        return MergeType::NONE;
+    }
 };
 } // namespace arm_compute
 #endif /*ARM_COMPUTE_ICPPKERNEL_H */

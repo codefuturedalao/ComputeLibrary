@@ -72,12 +72,13 @@ public:
         model.setup(common_params, *expected_output_filename);
 
         GraphConfig config;
-        config.num_threads = common_params.threads;
-        config.use_tuner   = common_params.enable_tuner;
-        config.tuner_mode  = common_params.tuner_mode;
-        config.tuner_file  = common_params.tuner_file;
-        config.mlgo_file   = common_params.mlgo_file;
+        // config.num_threads = common_params.threads;
+        // config.use_tuner   = common_params.enable_tuner;
+        // config.tuner_mode  = common_params.tuner_mode;
+        // config.tuner_file  = common_params.tuner_file;
+        // config.mlgo_file   = common_params.mlgo_file;
 
+        config = consume_common_graph_config(common_params);
         context.set_config(config);
 
         auto pass_manager = create_default_pass_manager(common_params.target, config);

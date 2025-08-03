@@ -152,6 +152,8 @@ public:
      * @return the @ref CPUModel of the cpuid queiried.
      */
     CPUModel get_cpu_model(unsigned int cpuid) const;
+
+    void set_cpu_model(unsigned int cpuid);
     /** Gets the current thread's cpu model
      *
      * @return Current thread's @ref CPUModel
@@ -208,6 +210,9 @@ struct ThreadInfo
     int            num_workloads{1};
     const CPUInfo *cpu_info{nullptr};
     Window* window{nullptr};
+    bool           is_big_core{false};      // Whether this thread is running on big core
+    ICPPKernel*    kernel{nullptr};
+    ICPPKernel*    second_kernel{nullptr};
 };
 
 } // namespace arm_compute

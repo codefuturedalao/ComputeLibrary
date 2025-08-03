@@ -285,7 +285,8 @@ using UniqueGemmCommon = std::unique_ptr<GemmCommon<Tlop, Trop, Tret>>;
 
 /* get_gemm_method(): Given the templated types and provided parameters,
  * which is the preferred method to implement this GEMM?  */
-template <typename Top, typename Tret, class OutputStage = Nothing>
+// template <typename Top, typename Tret, class OutputStage = Nothing>
+template <typename Tlop, typename Trop, typename Tret, class OutputStage = Nothing>
 KernelDescription get_gemm_method(const GemmArgs &args, const OutputStage & = {});
 
 template <typename Tlop, typename Trop, typename Tret, class OutputStage = Nothing>

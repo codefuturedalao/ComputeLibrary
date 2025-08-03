@@ -188,13 +188,15 @@ public:
 
         // Finalize graph
         GraphConfig config;
-        config.num_threads        = common_params.threads;
-        config.use_tuner          = common_params.enable_tuner;
-        config.tuner_mode         = common_params.tuner_mode;
-        config.tuner_file         = common_params.tuner_file;
-        config.mlgo_file          = common_params.mlgo_file;
-        config.use_synthetic_type = arm_compute::is_data_type_quantized(common_params.data_type);
-        config.synthetic_type     = common_params.data_type;
+       //  config.num_threads        = common_params.threads;
+       //  config.use_tuner          = common_params.enable_tuner;
+       //  config.tuner_mode         = common_params.tuner_mode;
+       //  config.tuner_file         = common_params.tuner_file;
+       //  config.mlgo_file          = common_params.mlgo_file;
+       //  config.use_synthetic_type = arm_compute::is_data_type_quantized(common_params.data_type);
+       //  config.synthetic_type     = common_params.data_type;
+
+       config = consume_common_graph_config(common_params);
 
         graph.finalize(common_params.target, config);
 
@@ -257,5 +259,13 @@ private:
  */
 int main(int argc, char **argv)
 {
-    return arm_compute::utils::run_example<GraphSqueezenetExample>(argc, argv);
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    int result = arm_compute::utils::run_example<GraphSqueezenetExample>(argc, argv);
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration_graph = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "squeezenet main time " << duration_graph << std::endl;
+    
+    return result;
 }

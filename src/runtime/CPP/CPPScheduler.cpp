@@ -42,6 +42,8 @@
 #include <system_error>
 #include <thread>
 #include <vector>
+#include <sys/types.h>
+#include <unistd.h>
 
 namespace arm_compute
 {
@@ -85,22 +87,52 @@ private:
  */
 void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeeder &feeder, const ThreadInfo &info)
 {
+
     ThreadInfo info_local = info;
     unsigned int workload_index = info.thread_id;
     unsigned int thread_id = info.thread_id;
-    unsigned int duration = 0;
+    /* Write the start of process_workloads */
+    std::stringstream ss;
+    pid_t pid = getpid();
+    ss << "B|" << pid << "|" << "process_workloads";
+    IScheduler::write_to_trace_marker(ss.str());
 
-    auto start = std::chrono::high_resolution_clock::now();
+    /* Statistics the time of workload time of each thread*/
+    timespec cpu_start,cpu_end;
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_start) != 0) {
+        perror("clock_gettime");
+        exit(EXIT_FAILURE);
+    }
+
+    /* process the workloads */
+    ARM_COMPUTE_ERROR_ON(thread_id >= IScheduler::workload_time.size());
+    ARM_COMPUTE_ERROR_ON(thread_id >= IScheduler::thread_end_time.size());
     do
     {
+        ss.str(""); 
+        ss << "B|" << pid << "|" << "index " << workload_index;
+        IScheduler::write_to_trace_marker(ss.str());
         ARM_COMPUTE_ERROR_ON(workload_index >= workloads.size());
         workloads[workload_index](info_local);
+        ss.str(""); 
+        ss << "E|" << pid;
+        IScheduler::write_to_trace_marker(ss.str());
     } while (feeder.get_next(workload_index));
-    auto end = std::chrono::high_resolution_clock::now();
 
-    auto duration_wl = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    duration += duration_wl;
-    ARM_COMPUTE_LOG_RUNTIME_INFO("Thread " << thread_id << ": " <<  duration);
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_end) != 0) {
+        perror("clock_gettime");
+        exit(EXIT_FAILURE);
+    }
+    auto duration_wl = (cpu_end.tv_sec - cpu_start.tv_sec) * 1000000 + (cpu_end.tv_nsec - cpu_start.tv_nsec) / 1000;
+    IScheduler::workload_time[thread_id] = duration_wl;
+
+    /* Write the end of process_workloads */
+    ss.str(""); 
+    ss << "E|" << pid;
+    IScheduler::write_to_trace_marker(ss.str());
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    IScheduler::thread_end_time[thread_id] = end_time;
 }
 
 /** Set thread affinity. Pin current thread to a particular core
@@ -489,6 +521,15 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     // won't interfere each other and deadlock.
     arm_compute::lock_guard<std::mutex> lock(_impl->_run_workloads_mutex);
     const unsigned int num_threads_to_use = std::min(_impl->num_threads(), static_cast<unsigned int>(workloads.size()));
+    if(_impl->num_threads() != workloads.size()) {
+        ARM_COMPUTE_LOG_RUNTIME_INFO( "[AsyMoScheduler::run_workloads]---> " << workloads.size() << " workloads");
+        ARM_COMPUTE_LOG_RUNTIME_INFO( "[AsyMoScheduler::run_workloads]---> " << _impl->num_threads() << " num_threads");
+    }
+    workload_time.resize(num_threads_to_use, 0);
+    workload_time.assign(workload_time.size(), 0);
+    thread_end_time.resize(num_threads_to_use);
+    auto workload_start = std::chrono::high_resolution_clock::now();
+
     if (num_threads_to_use < 1)
     {
         return;
@@ -564,6 +605,36 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
         std::cerr << "Caught system_error with code " << e.code() << " meaning " << e.what() << '\n';
     }
 #endif /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
+    auto workload_end = std::chrono::high_resolution_clock::now();
+    auto duration_sum_workload = std::chrono::duration_cast<std::chrono::microseconds>(workload_end - workload_start).count();
+    if(!IScheduler::workload_time.empty()) {
+        int min_val = *std::min_element(IScheduler::workload_time.begin(), IScheduler::workload_time.end());
+        int max_val = *std::max_element(IScheduler::workload_time.begin(), IScheduler::workload_time.end());
+        IScheduler::wait_latency.push_back(max_val - min_val);
+        IScheduler::sched_latency.push_back(duration_sum_workload - max_val);
+        if (IScheduler::run_stage_flag) {
+            IScheduler::run_processor_time.push_back(max_val);
+        }
+
+        auto max_end_it = std::max_element(IScheduler::thread_end_time.begin(), IScheduler::thread_end_time.end(),
+            [](const auto& a, const auto& b) { return a < b; });
+        auto min_end_it = std::min_element(IScheduler::thread_end_time.begin(), IScheduler::thread_end_time.end(),
+            [](const auto& a, const auto& b) { return a < b; });
+        auto max_end_val = *max_end_it;
+        auto min_end_val = *min_end_it;
+        auto thread_wait_latency_duration = std::chrono::duration_cast<std::chrono::microseconds>(max_end_val - min_end_val).count();
+        IScheduler::thread_wait_latency.push_back(thread_wait_latency_duration);
+        IScheduler::thread_end_time.clear();
+
+        ARM_COMPUTE_LOG_RUNTIME_INFO("wait_latency_curr: " << max_val - min_val << " sched_latency_curr: " << duration_sum_workload - max_val << " run_processor_time_curr: " << (run_stage_flag ? max_val : 0));
+        std::stringstream msg;
+        msg << duration_sum_workload << ", " 
+            << max_val << ","
+            << max_val - min_val << ","
+            << thread_wait_latency_duration << std::endl;
+        write_to_log_file(msg.str());
+        IScheduler::workload_time.clear();
+    }
 }
 #endif /* DOXYGEN_SKIP_THIS */
 

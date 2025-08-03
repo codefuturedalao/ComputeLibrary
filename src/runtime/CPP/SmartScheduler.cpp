@@ -28,6 +28,7 @@
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/Log.h"
 #include "arm_compute/runtime/Logger.h"
+#include "src/runtime/CPP/KernelConverter.h"
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/utils/misc/Utility.h"
 
@@ -45,13 +46,18 @@
 #include <system_error>
 #include <thread>
 #include <vector>
+#include <limits>
 #include <chrono>
 #include <sys/types.h>
 #include <unistd.h>
 #include <future>
+#include <queue>
+#include <functional>
 
 namespace arm_compute
 {
+
+// MergeType is defined in arm_gemm namespace
 namespace
 {
 class ThreadFeeder
@@ -72,6 +78,14 @@ public:
     bool set_start(unsigned int start) {
         _atomic_counter.store(start, std::memory_order_relaxed);
         return true;
+    }
+
+    unsigned int get_start() {
+        return _atomic_counter.load(std::memory_order_relaxed);
+    }
+
+    unsigned int get_remaining() {
+        return _end - _atomic_counter.load(std::memory_order_relaxed);
     }
 
     /** Return the next element in the range if there is one.
@@ -97,6 +111,7 @@ public:
         if (remaining <= _num_threads || remaining <= batch_size) {
             batch_size = 1;
         }
+        // batch_size = 1;
 
         while (batch_size > 0) {
             unsigned int current = _atomic_counter.load(std::memory_order_relaxed);
@@ -124,7 +139,7 @@ public:
             }
 
             // 如果获取失败，减小batch_size继续尝试
-            batch_size = actual_batch > 1 ? actual_batch - 1 : 0;
+            batch_size = actual_batch > 1 ? actual_batch - 1 : 1;
         }
         
         return false;
@@ -155,6 +170,10 @@ public:
 private:
     void init_perf_adjust(unsigned int num_threads) {
         _perf_adjust.clear();
+        if (num_threads == 1) {
+            _perf_adjust.push_back(0);
+            return;
+        }
         
         // 计算每种调整值的数量
         unsigned int num_increase = std::max(1u, num_threads / 2);
@@ -175,6 +194,10 @@ private:
     std::vector<unsigned int> _thread_rounds;     // 记录每个线程的轮次
 };
 
+
+
+
+
 /** Execute workloads[info.thread_id] first, then call the feeder to get the index of the next workload to run.
  *
  * Will run workloads until the feeder reaches the end of its range.
@@ -187,6 +210,7 @@ void process_workloads_with_windows(std::vector<IScheduler::Workload> &workloads
 {
     ThreadInfo info_local = info;
     unsigned int thread_id = info.thread_id;
+    
     /* Write the start of process_workloads */
     std::stringstream ss;
     pid_t pid = getpid();
@@ -204,10 +228,11 @@ void process_workloads_with_windows(std::vector<IScheduler::Workload> &workloads
     ARM_COMPUTE_ERROR_ON(thread_id >= IScheduler::workload_time.size());
     ARM_COMPUTE_ERROR_ON(thread_id >= IScheduler::thread_end_time.size());
 
-    const unsigned int MAX_BATCH_SIZE = std::max<unsigned int>(4, workloads.size() / 8);
-    unsigned int batch_size = std::max<unsigned int>(1, workloads.size() / 32);  // 初始batch size为1
+    const unsigned int MAX_BATCH_SIZE = std::max<unsigned int>(4, feeder.get_remaining() / 8);
+    unsigned int batch_size = std::max<unsigned int>(1, feeder.get_remaining() / 32);  // 初始batch size为 workloads.size() / 32
 
     std::vector<unsigned int> workload_indices;
+    // printf("thread %d start process_workloads\n", info_local.true_thread_id);
     do
     {
         workload_indices.clear();
@@ -215,9 +240,12 @@ void process_workloads_with_windows(std::vector<IScheduler::Workload> &workloads
         // 尝试获取一批连续的workload
         if (feeder.get_next_batch(workload_indices, batch_size)) {
             if (batch_size > 1 && workload_indices.size() > 1) {
+                // printf("thread %d try merge %zu workloads\n", info_local.true_thread_id, workload_indices.size());
+
                 ss.str(""); 
                 ss << "B|" << pid << "|" << "try merge " << batch_size;
                 IScheduler::write_to_trace_marker(ss.str());
+                
                 // 获取第一个window的信息作为基准
                 const auto& first_window = windows[workload_indices[0]];
                 size_t split_dimension = first_window.split_dimension;
@@ -229,15 +257,32 @@ void process_workloads_with_windows(std::vector<IScheduler::Workload> &workloads
                 for (size_t i = 1; i < workload_indices.size(); ++i) {
                     const auto& curr_window = windows[workload_indices[i]];
                     
-                    // 检查split_dimension是否一致且id是递增的
-                    if (curr_window.split_dimension == split_dimension && curr_window.id == last_id + 1) {
+                    // For kernel conversion, allow non-sequential IDs if they form valid blocks
+                    bool can_merge = false;
+                    if (curr_window.is_block) {
+                    //     // Check if this forms a valid convertible block
+                    //     std::vector<size_t> block_indices(workload_indices.begin(), workload_indices.begin() + i + 1);
+                    //     can_merge = true; // Simplified - in practice, check spatial adjacency
+                        can_merge = curr_window.block_col == first_window.block_col;
+                    } else {
+                        // Original logic: check split_dimension consistency and ID increment
+                        can_merge = (curr_window.split_dimension == split_dimension && curr_window.id == last_id + 1);
+                    }
+                    
+                    if (can_merge) {
                         merge_end_idx = i;
                         last_id = curr_window.id;
-                        adjust_value += curr_window.window[split_dimension].end() - curr_window.window[split_dimension].start();
+                        if(curr_window.is_block) {
+                            adjust_value += curr_window.window[Window::DimX].end() - curr_window.window[Window::DimX].start();
+                            // printf("can merge block, block_col: %zu, first_window.block_col: %zu, with adjust_value: %zu\n", curr_window.block_col, first_window.block_col, adjust_value);
+                        } else {
+                            adjust_value += curr_window.window[split_dimension].end() - curr_window.window[split_dimension].start();
+                        }
                     } else {
                         break;
                     }
                 }
+                // printf("thread_id: %d, merge window from %d to %d, with  %zu merged and %zu left, adjust_value: %zu\n", info_local.true_thread_id, workload_indices[0], workload_indices[merge_end_idx], merge_end_idx + 1, workload_indices.size() - merge_end_idx - 1, adjust_value);
 
                 if (merge_end_idx > 0) {
                     ss.str(""); 
@@ -245,19 +290,22 @@ void process_workloads_with_windows(std::vector<IScheduler::Workload> &workloads
                     IScheduler::write_to_trace_marker(ss.str());
                     // 创建合并后的window
                     Window merged_win = windows[workload_indices[0]].window;
+                    // printf("thread_id: %d, Before adjust merged_win: %d %d %d %d\n", info_local.true_thread_id, merged_win[Window::DimX].start(), merged_win[Window::DimX].end(), merged_win[Window::DimY].start(), merged_win[Window::DimY].end());
                     merged_win.adjust(split_dimension, adjust_value, false);
+                    // printf("thread_id: %d, merged_win: %d %d %d %d\n", info_local.true_thread_id, merged_win[Window::DimX].start(), merged_win[Window::DimX].end(), merged_win[Window::DimY].start(), merged_win[Window::DimY].end());
 
                     // 创建新的workload
                     ThreadInfo merged_info = info;
+                    merged_info.thread_id = windows[workload_indices[0]].column_idx;
                     //merged_info.window = &merged_win;
                     
                     IScheduler::Workload merged_workload = [&merged_win](ThreadInfo& info) {
-                        ICPPKernel* kernel = SmartScheduler::get().kernel();
+                        ICPPKernel* kernel = info.kernel;
                         ITensorPack tensors = SmartScheduler::get().tensors();
                         //Window merged_win = *info.window;
                         
                         // std::printf("thread %d execute merged_win %d\n", 
-                        //           info.true_thread_id, info.thread_id);
+                                //   info.true_thread_id, info.thread_id);
 
                         merged_win.validate();
                         
@@ -273,7 +321,9 @@ void process_workloads_with_windows(std::vector<IScheduler::Workload> &workloads
 
                     // 处理剩余的不能合并的workload
                     for (size_t i = merge_end_idx + 1; i < workload_indices.size(); ++i) {
-                        info_local.thread_id = workload_indices[i];
+                        // info_local.thread_id = workload_indices[i];
+                        // printf("thread id %d executing left workload\n", info_local.true_thread_id);
+                        info_local.thread_id = windows[workload_indices[i]].column_idx;
                         //info_local.window = &windows[workload_indices[i]].window;
                         workloads[workload_indices[i]](info_local);
                     }
@@ -287,7 +337,8 @@ void process_workloads_with_windows(std::vector<IScheduler::Workload> &workloads
                     IScheduler::write_to_trace_marker(ss.str());
                     // 如果没有可以合并的window，逐个执行
                     for (unsigned int index : workload_indices) {
-                        info_local.thread_id = index;
+                        // info_local.thread_id = index;
+                        info_local.thread_id = windows[index].column_idx;
                         //info_local.window = &windows[index].window;
                         workloads[index](info_local);
                     }
@@ -305,7 +356,9 @@ void process_workloads_with_windows(std::vector<IScheduler::Workload> &workloads
                 ss << "B|" << pid << "|" << "workload " << workload_indices[0];
                 IScheduler::write_to_trace_marker(ss.str());
                 // 单个workload直接执行
-                info_local.thread_id = workload_indices[0];
+                // printf("thread %d execute workload %d with block_row: %zu, block_col: %zu\n", info_local.true_thread_id, workload_indices[0], windows[workload_indices[0]].block_row, windows[workload_indices[0]].block_col);
+                // info_local.thread_id = workload_indices[0];
+                info_local.thread_id = windows[workload_indices[0]].column_idx;
                 //info_local.window = &windows[workload_indices[0]].window;
                 workloads[workload_indices[0]](info_local);
 
@@ -403,6 +456,233 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
     //std::printf("Thread %d: %d\n", thread_id, IScheduler::workload_time[thread_id]);
 }
 
+SmartScheduler::WorkloadWindow convert_block_to_merged_window(size_t block_row, size_t block_column, size_t num_of_block,
+       size_t kernels_per_block_height, size_t kernels_per_block_width, size_t total_window_rows, size_t total_window_cols, Window max_window) {
+    
+        size_t min_row_idx = block_row * kernels_per_block_height;
+        size_t min_col_idx = block_column * kernels_per_block_width;
+
+        size_t workload_id = std::ceil(total_window_rows / kernels_per_block_height) * block_column + block_row;
+
+        // Only increase in DimX
+        max_window.set(Window::DimX, {static_cast<int>(min_row_idx), static_cast<int>(std::min(total_window_rows, min_row_idx + kernels_per_block_height * num_of_block))});
+        max_window.set(Window::DimY, {static_cast<int>(min_col_idx), static_cast<int>(std::min(total_window_cols, min_col_idx + kernels_per_block_width))});
+
+        SmartScheduler::WorkloadWindow workload_window = SmartScheduler::WorkloadWindow(max_window,                    // merged window  TODO:
+            0,                                // split_dimension
+            workload_id,                      // workload id
+            min_row_idx,                      // row_idx (from window_indices calculation)
+            min_col_idx,                      // column_idx (from window_indices calculation)
+            true,                             // divisible
+            SmartScheduler::BlockConfig(kernels_per_block_height, kernels_per_block_width, total_window_rows, total_window_cols),
+            true,                     // can_transform parameter
+            true,
+            block_row,
+            block_column
+        );
+
+        return workload_window;
+}
+
+/** Execute workloads[info.thread_id] first, then call the feeder to get the index of the next workload to run.
+ *
+ * Will run workloads until the feeder reaches the end of its range.
+ *
+ * @param[in]     workloads The array of workloads
+ * @param[in,out] feeder    The feeder indicating which workload to execute next.
+ * @param[in]     info      Threading and CPU info.
+ */
+void process_workloads_with_windows_dual(std::vector<IScheduler::Workload> &workloads, std::vector<SmartScheduler::WorkloadWindow> &windows, ThreadFeeder &first_feeder, ThreadFeeder &second_feeder, const ThreadInfo &info)
+{
+    ARM_COMPUTE_UNUSED(second_feeder);
+    ThreadInfo info_local = info;
+    unsigned int thread_id = info.thread_id;
+    
+    unsigned int start = first_feeder.get_start();
+    SmartScheduler::BlockConfig block_config = windows[start].block_config;
+    size_t kernels_per_block_height = block_config.kernels_per_block_height;
+    size_t kernels_per_block_width = block_config.kernels_per_block_width;
+    size_t total_window_rows = block_config.total_window_rows;
+    size_t total_window_cols = block_config.total_window_cols;
+
+    
+    /* Write the start of process_workloads */
+    std::stringstream ss;
+    pid_t pid = getpid();
+    ss << "B|" << pid << "|" << "process_workloads_dual";
+    IScheduler::write_to_trace_marker(ss.str());
+
+    // printf("thread_id %d start its work\n", thread_id);
+    // ICPPKernel* temp_kernel = info.kernel
+
+    process_workloads_with_windows(workloads, windows, first_feeder, info_local);
+
+    // printf("thread_id %d finished its work\n", thread_id);
+
+
+    // info_local.kernel = info.second_kernel;
+    // process_workloads_with_windows(workloads, windows, second_feeder, info_local);
+
+    ss.clear();
+    ss << "B|" << pid << "|" << "process_workloads_another";
+    IScheduler::write_to_trace_marker(ss.str());
+
+    /* process the workloads */
+    ARM_COMPUTE_ERROR_ON(thread_id >= IScheduler::workload_time.size());
+    ARM_COMPUTE_ERROR_ON(thread_id >= IScheduler::thread_end_time.size());
+
+    // const unsigned int MAX_BATCH_SIZE = std::max<unsigned int>(4, second_feeder.get_remaining() / 8);
+    unsigned int batch_size = std::max<unsigned int>(1, second_feeder.get_remaining() / 16);  // 初始batch size为 workloads.size() / 32
+
+    std::vector<unsigned int> workload_indices;
+    // printf("thread %d start process_workloads with batch_size: %d\n", info_local.true_thread_id, batch_size);
+    do
+    {
+        workload_indices.clear();
+        
+        // 尝试获取一批连续的workload
+        if (second_feeder.get_next_batch(workload_indices, batch_size)) {
+            if (batch_size > 1 && workload_indices.size() > 1) {
+                // printf("thread %d try merge %zu workloads\n", info_local.true_thread_id, workload_indices.size());
+
+                ss.str(""); 
+                ss << "B|" << pid << "|" << "try merge " << batch_size;
+                IScheduler::write_to_trace_marker(ss.str());
+                
+                // 获取第一个window的信息作为基准
+                const auto& first_window = windows[workload_indices[0]];
+                
+                // 找到最后一个可以合并的window的索引
+                size_t merge_end_idx = 0;
+                for (size_t i = 1; i < workload_indices.size(); ++i) {
+                    const auto& curr_window = windows[workload_indices[i]];
+                    bool can_merge = curr_window.block_col == first_window.block_col;
+                    
+                    if (can_merge) {
+                        merge_end_idx = i;
+                    } else {
+                        break;
+                    }
+                }
+
+                if (merge_end_idx > 0) {
+                    ss.str(""); 
+                    ss << "B|" << pid << "|" << "merged workload " << workload_indices[0] << " to " << workload_indices[merge_end_idx];
+                    IScheduler::write_to_trace_marker(ss.str());
+                    // 创建合并后的window
+                    // printf("thread_id: %d, Before adjust merged_win: %d %d %d %d\n", info_local.true_thread_id, first_window.window[Window::DimX].start(), first_window.window[Window::DimX].end(), first_window.window[Window::DimY].start(), first_window.window[Window::DimY].end());
+                    SmartScheduler::WorkloadWindow merged_window = convert_block_to_merged_window(
+                        first_window.block_row,
+                        first_window.block_col,
+                        merge_end_idx + 1,
+                        kernels_per_block_height,
+                        kernels_per_block_width,
+                        total_window_rows,
+                        total_window_cols,
+                        first_window.window
+                    );
+                    // printf("thread_id: %d, merged_win: %d %d %d %d\n", info_local.true_thread_id, merged_window.window[Window::DimX].start(), merged_window.window[Window::DimX].end(), merged_window.window[Window::DimY].start(), merged_window.window[Window::DimY].end());
+
+                    // 创建新的workload
+                    ThreadInfo merged_info = info;
+                    Window merged_win = merged_window.window;
+                    merged_info.thread_id = merged_window.column_idx;
+                    
+                    IScheduler::Workload merged_workload = [&merged_win](ThreadInfo& info) {
+                        // use main kernel to do
+                        ICPPKernel* kernel = info.kernel;
+                        ITensorPack tensors = SmartScheduler::get().tensors();
+                        //Window merged_win = *info.window;
+                        
+                        // std::printf("thread %d execute merged_win %d\n", 
+                                //   info.true_thread_id, info.thread_id);
+
+                        merged_win.validate();
+                        
+                        if (tensors.empty()) {
+                            kernel->run(merged_win, info);
+                        } else {
+                            kernel->run_op(tensors, merged_win, info);
+                        }
+                    };
+
+                    // 执行合并后的workload
+                    merged_workload(merged_info);
+
+                    // 处理剩余的不能合并的workload, don't do conversion for overhead 
+                    for (size_t i = merge_end_idx + 1; i < workload_indices.size(); ++i) {
+                        // info_local.thread_id = workload_indices[i];
+                        // printf("thread id %d executing left workload\n", info_local.true_thread_id);
+                        info_local.thread_id = windows[workload_indices[i]].column_idx;
+                        //info_local.window = &windows[workload_indices[i]].window;
+                        workloads[workload_indices[i]](info_local);
+                    }
+
+                    ss.str(""); 
+                    ss << "E|" << pid;
+                    IScheduler::write_to_trace_marker(ss.str());
+                } else {        //todo: 先执行能合并的，后执行不能合并，不是if-else
+                    ss.str(""); 
+                    ss << "B|" << pid << "|" << "left workload " << workload_indices.front() << " to " << workload_indices.back();
+                    IScheduler::write_to_trace_marker(ss.str());
+                    // 如果没有可以合并的window，逐个执行
+                    for (unsigned int index : workload_indices) {
+                        // info_local.thread_id = index;
+                        info_local.thread_id = windows[index].column_idx;
+                        //info_local.window = &windows[index].window;
+                        workloads[index](info_local);
+                    }
+
+                    ss.str(""); 
+                    ss << "E|" << pid;
+                    IScheduler::write_to_trace_marker(ss.str());
+                }
+
+                ss.str(""); 
+                ss << "E|" << pid;
+                IScheduler::write_to_trace_marker(ss.str());
+            } else {
+                ss.str(""); 
+                ss << "B|" << pid << "|" << "workload " << workload_indices[0];
+                IScheduler::write_to_trace_marker(ss.str());
+                // 单个workload直接执行
+                // printf("thread %d execute workload %d with block_row: %zu, block_col: %zu\n", info_local.true_thread_id, workload_indices[0], windows[workload_indices[0]].block_row, windows[workload_indices[0]].block_col);
+                info_local.thread_id = windows[workload_indices[0]].column_idx;
+                workloads[workload_indices[0]](info_local);
+
+                ss.str(""); 
+                ss << "E|" << pid;
+                IScheduler::write_to_trace_marker(ss.str());
+            }
+
+            
+            // DONT do adjust due to the size of _thread_round in feeder 
+            // // 获取性能调整值并调整batch_size
+            // int adjustment = feeder.get_perf_adjustment(thread_id);
+
+            // if (adjustment > 0 && batch_size < MAX_BATCH_SIZE) {
+            //     batch_size++;
+            // } else if (adjustment < 0 && batch_size > 1) {
+            //     batch_size--;
+            // }
+
+        }
+    } while (!workload_indices.empty());
+
+
+    /* Write the end of process_workloads */
+    ss.str(""); 
+    ss << "E|" << pid;
+    IScheduler::write_to_trace_marker(ss.str());
+    // printf("thread_id %d finished all the work\n", thread_id);
+
+    /* Write the end of process_workloads */
+    ss.str(""); 
+    ss << "E|" << pid;
+    IScheduler::write_to_trace_marker(ss.str());
+
+    //std::printf("Thread %d: %d\n", thread_id, IScheduler::workload_time[thread_id]);
+}
 /** Set thread affinity. Pin current thread to a particular core
  *
  * @param[in] core_id ID of the core to which the current thread is pinned
@@ -483,6 +763,9 @@ public:
     /** Set workloads */
     void set_workload(std::vector<IScheduler::Workload> *workloads, ThreadFeeder &feeder, const ThreadInfo &info);
 
+    /** Set workloads with dual feeder */
+    void set_workload_dual(std::vector<IScheduler::Workload> *workloads, ThreadFeeder &first_feeder, ThreadFeeder &second_feeder, const ThreadInfo &info);
+
     /** Set workloadWindows */
     void set_windows(std::vector<SmartScheduler::WorkloadWindow> *windows);
 
@@ -519,6 +802,12 @@ public:
         _wake_beg    = wake_beg;
         _wake_end    = wake_end;
     }
+    
+    /** Get whether this thread is running on big core */
+    bool is_big_core() const
+    {
+        return _is_big_core;
+    }
 
 private:
     std::thread                        _thread{};
@@ -526,6 +815,9 @@ private:
     std::vector<IScheduler::Workload> *_workloads{nullptr};
     std::vector<SmartScheduler::WorkloadWindow> *_windows{nullptr};
     ThreadFeeder                      *_feeder{nullptr};
+    ThreadFeeder                      *_first_feeder{nullptr};
+    ThreadFeeder                      *_second_feeder{nullptr};
+    bool                                    _kernel_conversion{false};
     std::mutex                         _m{};
     std::condition_variable            _cv{};
     bool                               _wait_for_work{false};
@@ -533,6 +825,7 @@ private:
     bool                               _force_schedule{false};
     std::exception_ptr                 _current_exception{nullptr};
     std::string _core_pin{};
+    bool _is_big_core{false};  // Track if current thread is on big core
     std::list<Thread>                 *_thread_pool{nullptr};
     unsigned int                       _wake_beg{0};
     unsigned int                       _wake_end{0};
@@ -572,6 +865,22 @@ void Thread::set_workload(std::vector<IScheduler::Workload> *workloads, ThreadFe
     _workloads = workloads;
     _feeder    = &feeder;
     _info      = info;
+
+    _first_feeder    = nullptr;
+    _second_feeder    = nullptr;
+    _kernel_conversion = false;
+}
+
+void Thread::set_workload_dual(std::vector<IScheduler::Workload> *workloads, ThreadFeeder &first_feeder, ThreadFeeder &second_feeder, const ThreadInfo &info)
+{
+    // printf("thread_id %d set workload dual\n", info.thread_id);
+    _workloads = workloads;
+    _feeder    = nullptr;
+    _info      = info;
+
+    _first_feeder    = &first_feeder;
+    _second_feeder    = &second_feeder;
+    _kernel_conversion = true;
 }
 
 void Thread::set_windows(std::vector<SmartScheduler::WorkloadWindow> *windows)
@@ -614,6 +923,16 @@ void Thread::worker_thread()
     {
         std::unique_lock<std::mutex> lock(_m);
         set_thread_affinity(_core_pin);
+        
+        // Determine if this thread is running on big core
+        // High 4 bits (0xF0) indicate big cores
+        if (!_core_pin.empty()) {
+            char *end;
+            long int mask = strtol(_core_pin.c_str(), &end, 16);
+            _is_big_core = ((mask & 0xF0) != 0);
+            printf("Thread %d core_pin: %s mask: 0x%lx is_big_core: %d\n", 
+                   _info.thread_id, _core_pin.c_str(), mask, _is_big_core);
+        }
     }
 
     while (true)
@@ -622,6 +941,13 @@ void Thread::worker_thread()
         _cv.wait(lock, [&] { return _wait_for_work || _force_schedule; });
         if (_force_schedule) {
             set_thread_affinity(_core_pin);
+            if (!_core_pin.empty()) {
+                char *end;
+                long int mask = strtol(_core_pin.c_str(), &end, 16);
+                _is_big_core = ((mask & 0xF0) != 0);
+                printf("Thread %d core_pin: %s mask: 0x%lx is_big_core: %d\n", 
+                    _info.thread_id, _core_pin.c_str(), mask, _is_big_core);
+            }
             _force_schedule = false;
             continue;
         }
@@ -630,7 +956,7 @@ void Thread::worker_thread()
         _current_exception = nullptr;
 
         // Exit if the worker thread has not been fed with workloads
-        if (_workloads == nullptr || _feeder == nullptr)
+        if (_workloads == nullptr || (_feeder == nullptr && _first_feeder == nullptr))
         {
             return;
         }
@@ -646,13 +972,18 @@ void Thread::worker_thread()
                 thread_it->start();
             }
         }
+        // printf("thread_id %d was woken \n", _info.thread_id);
 
 #ifndef ARM_COMPUTE_EXCEPTIONS_DISABLED
         try
         {
 #endif /* ARM_COMPUTE_EXCEPTIONS_ENABLED */
             if(_windows != nullptr && _windows->front().divisible) {
-                process_workloads_with_windows(*_workloads, *_windows, *_feeder, _info);
+                if (_kernel_conversion) {
+                    process_workloads_with_windows_dual(*_workloads, *_windows, *_first_feeder, *_second_feeder, _info);
+                } else {
+                    process_workloads_with_windows(*_workloads, *_windows, *_feeder, _info);
+                }
             } else {
                 process_workloads(*_workloads, *_feeder, _info);
             }
@@ -693,6 +1024,8 @@ struct SmartScheduler::Impl final
         : _num_threads(thread_hint), _threads(_num_threads - 1), _mode(Mode::Linear), _wake_fanout(0U)
     {
         ARM_COMPUTE_LOG_RUNTIME_INFO( "Impl Initializize with " << _num_threads - 1 << " threads in _threads" << std::endl);
+        _num_threads_big = _num_threads; // Initialize big cores count to total count
+
         const auto mode_env_v = utility::tolower(utility::getenv("ARM_COMPUTE_CPP_SCHEDULER_MODE"));
         if (mode_env_v == "linear")
         {
@@ -710,6 +1043,8 @@ struct SmartScheduler::Impl final
     void set_num_threads(unsigned int num_threads, unsigned int thread_hint)
     {
         _num_threads = num_threads == 0 ? thread_hint : num_threads;
+        _num_threads_big = _num_threads; // Default: assume all cores are big
+
         ARM_COMPUTE_LOG_RUNTIME_INFO( "[SmartScheduler::set_num_threads]---> " << _num_threads << " _num_threads" << std::endl);
         _threads.resize(_num_threads - 1);
         workload_time.resize(_num_threads, 0);
@@ -720,19 +1055,35 @@ struct SmartScheduler::Impl final
     void set_num_threads_with_affinity(unsigned int num_threads, unsigned int thread_hint, BindFunc func)
     {
         _num_threads = num_threads == 0 ? thread_hint : num_threads;
+        _num_threads_big = 0; // Reset big core count
 
         ARM_COMPUTE_LOG_RUNTIME_INFO( "[SmartScheduler::set_num_threads_with_affinity]---> " << _num_threads << " _num_threads" << std::endl);
+        
         // Set affinity on main thread
-        set_thread_affinity(func(0, _num_threads));
+        std::string main_affinity = func(0, _num_threads);
+        set_thread_affinity(main_affinity);
+        
+        // Count big cores from main thread affinity
+        char *end;
+        long int mask = strtol(main_affinity.c_str(), &end, 16);
+        if((mask & 0xF0) != 0) { // Check high 4 bits
+            _num_threads_big++;
+        }
 
         // Set affinity on worked threads
-        // _threads.clear();
         _threads.resize(_num_threads - 1);
 
-        auto         thread_it = _threads.begin();
+        auto thread_it = _threads.begin();
         for (auto i = 1U; i < _num_threads; ++i, ++thread_it)
         {
-            thread_it->force_schedule(func(i, _num_threads));
+            std::string affinity = func(i, _num_threads);
+            thread_it->force_schedule(affinity);
+            
+            // Count big cores from worker thread affinity
+            mask = strtol(affinity.c_str(), &end, 16);
+            if((mask & 0xF0) != 0) { // Check high 4 bits
+                _num_threads_big++;
+            }
         }
         auto_switch_mode(_num_threads);
     }
@@ -847,14 +1198,33 @@ struct SmartScheduler::Impl final
     }
 
     void run_workloads(std::vector<IScheduler::Workload> &workloads);
+    
+    // Big core thread worker function
+    void big_core_worker_thread();
 
     unsigned int       _num_threads;
+    unsigned int       _num_threads_big; // Count of big cores
     std::list<Thread>  _threads;
 
     std::future<std::exception_ptr> _wait_future;
     std::atomic<bool> _is_waiting{false};
     std::condition_variable _wait_cv;
     std::mutex _wait_mutex;
+
+    // Big core thread management
+    std::thread _big_core_thread;
+    std::atomic<bool> _big_core_thread_running{false};
+    std::atomic<bool> _big_core_thread_shutdown{false};
+    std::mutex _big_core_mutex;
+    std::condition_variable _big_core_cv;
+    std::queue<std::function<void()>> _big_core_operations;
+    std::atomic<bool> _big_core_operation_pending{false};
+    std::exception_ptr _big_core_exception{nullptr};
+
+    bool _is_kernel_conversion{false};
+    unsigned int _big_core_end_idx{0};
+    ICPPKernel* _kernel{nullptr};
+    ICPPKernel* _alternate_kernel{nullptr};
 
     arm_compute::Mutex _run_workloads_mutex{};
     Mode               _mode{Mode::Linear};
@@ -867,6 +1237,20 @@ void SmartScheduler::set_scheduling_mode(bool scheduling_mode)
 {
     SmartScheduler::scheduling_mode = scheduling_mode;
     ARM_COMPUTE_LOG_RUNTIME_INFO( "Set scheduling_mode to " << scheduling_mode << std::endl);   
+}
+
+bool SmartScheduler::kernel_conversion = false;
+void SmartScheduler::set_kernel_conversion(bool kernel_conversion)
+{
+    SmartScheduler::kernel_conversion = kernel_conversion;
+    ARM_COMPUTE_LOG_RUNTIME_INFO( "Set kernel_conversion to " << kernel_conversion << std::endl);   
+}
+
+int SmartScheduler::workload_size = -1;
+void SmartScheduler::set_workload_size(int workload_size)
+{
+    SmartScheduler::workload_size = workload_size;
+    ARM_COMPUTE_LOG_RUNTIME_INFO( "Set workload_size to " << workload_size << std::endl);   
 }
 
 /*
@@ -883,6 +1267,7 @@ SmartScheduler::SmartScheduler() : _impl(std::make_unique<Impl>(num_threads_hint
 }
 
 SmartScheduler::~SmartScheduler(){
+   shutdown_big_core_thread();
    _impl-> _threads.clear();
 }
 
@@ -924,12 +1309,14 @@ void SmartScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     thread_end_time.resize(num_threads_to_use);
     auto workload_start = std::chrono::high_resolution_clock::now();
 
+
     if (num_threads_to_use < 1)
     {
         return;
     }
     // Re-adjust the mode if the actual number of threads to use is different from the number of threads created
     _impl->auto_switch_mode(num_threads_to_use);
+
     int num_threads_to_start = 0;
     switch (_impl->mode())
     {
@@ -946,11 +1333,16 @@ void SmartScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
         }
     }
     ThreadFeeder feeder(num_threads_to_use, workloads.size());
+    ThreadFeeder big_core_feeder(num_threads_to_use, _impl->_big_core_end_idx);
+    ThreadFeeder little_core_feeder(num_threads_to_use, workloads.size());
+    little_core_feeder.set_start(_impl->_big_core_end_idx);
+
     ThreadInfo   info;
     info.cpu_info          = &cpu_info();
     //info.num_threads       = num_threads_to_use;
     info.num_threads = num_threads_to_use;  //for some kernels that use the thread_id to split workload instead of window
     info.num_workloads = workloads.size();
+
 
     unsigned int t         = 0;
     auto         thread_it = _impl->_threads.begin();
@@ -959,7 +1351,23 @@ void SmartScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     for (; t < num_threads_to_use - 1; ++t, ++thread_it)
     {
         info.thread_id = t + 1;
-        thread_it->set_workload(&workloads, feeder, info);
+        info.true_thread_id = t + 1;
+        info.is_big_core = thread_it->is_big_core();  // Set big core status from thread
+        if (_impl->_is_kernel_conversion) {
+            if (thread_it->is_big_core()) {
+                info.kernel = _impl->_alternate_kernel;
+                info.second_kernel = _impl->_kernel;
+                thread_it->set_workload_dual(&workloads, big_core_feeder, little_core_feeder, info);
+            } else {
+                info.kernel = _impl->_kernel;
+                info.second_kernel = _impl->_alternate_kernel;
+                thread_it->set_workload_dual(&workloads, little_core_feeder, big_core_feeder, info);
+            }
+        } else {
+            info.kernel = SmartScheduler::get()._kernel;
+            thread_it->set_workload(&workloads, feeder, info);
+        }
+        // thread_it->set_workload(&workloads, feeder, info);
         thread_it->set_windows(&windows);
     }
     thread_it = _impl->_threads.begin();
@@ -967,7 +1375,10 @@ void SmartScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     {
         thread_it->start();
     }
-    info.thread_id                    = 0; // make main thread running on the big
+    info.thread_id = 0; // make main thread running on the big
+    info.true_thread_id = 0;
+    info.is_big_core = true; // Main thread is considered as big core
+    info.kernel = _impl->_alternate_kernel;
 
     std::exception_ptr last_exception = nullptr;
 #ifndef ARM_COMPUTE_EXCEPTIONS_DISABLED
@@ -975,8 +1386,13 @@ void SmartScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
     {
 #endif                                              /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
         if(!windows.empty() && windows.front().divisible) {
-            process_workloads_with_windows(workloads, windows, feeder, info); // Main thread processes workloads
+            if (_impl->_is_kernel_conversion) {
+                process_workloads_with_windows_dual(workloads, windows, big_core_feeder, little_core_feeder, info); // Main thread processes workloads
+            } else {
+                process_workloads_with_windows(workloads, windows, feeder, info); // Main thread processes workloads
+            }
         } else {
+            // if (_impl->_is_kernel_conversion) {
             process_workloads(workloads, feeder, info); // Main thread processes workloads
         }
 #ifndef ARM_COMPUTE_EXCEPTIONS_DISABLED
@@ -1040,6 +1456,7 @@ void SmartScheduler::schedule_op(ICPPKernel *kernel, const Hints &hints, const W
     schedule_common(kernel, hints, window, tensors);
     // }
 }
+
 
 void SmartScheduler::schedule(ICPPKernel *kernel, const Hints &hints)
 {
@@ -1117,13 +1534,16 @@ void SmartScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, con
         // const unsigned int num_iterations_original = max_window.num_iterations(hints.split_dimension());
         // std::printf("We got split-dimension %d with %d iterations\n", hints.split_dimension(), num_iterations_original);
 
-        int optimal_split_dim = find_max_num_of_windows(max_window, hints.split_dimension());        //Just Log all the dimensions' num_iterations
+        int optimal_split_dim = find_optimal_dimension(kernel, max_window, hints.split_dimension());        //Just Log all the dimensions' num_iterations
         // std::printf("Find the optimal split dimension %d\n", optimal_split_dim);
         const_cast<IScheduler::Hints&>(hints).set_split_dimension(optimal_split_dim);
 
         /* Update the num_iterations and num_threads after selected */
         const unsigned int num_iterations = max_window.num_iterations(hints.split_dimension());
         unsigned int num_threads = std::min(num_iterations, this->num_threads());
+
+        int min_granule_size = -1;
+        min_granule_size = find_min_granule_size(kernel, max_window, hints.split_dimension());
 
         unsigned int num_windows = 0;
         switch (hints.strategy())
@@ -1135,8 +1555,12 @@ void SmartScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, con
             case StrategyHint::DYNAMIC:
             {
                 ARM_COMPUTE_LOG_RUNTIME_INFO("split the windows with strategy dynamic");
-                const unsigned int granule_threshold =
+                unsigned int granule_threshold =
                     (hints.threshold() <= 0) ? num_threads : static_cast<unsigned int>(hints.threshold());
+
+                if (min_granule_size != -1) {
+                    granule_threshold = std::min<unsigned int>(granule_threshold, min_granule_size);
+                }
                 // Make sure we don't use some windows which are too small as this might create some contention on the ThreadFeeder
                 num_windows = num_iterations > granule_threshold ? granule_threshold : num_iterations;
                 break;
@@ -1145,10 +1569,19 @@ void SmartScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, con
                 ARM_COMPUTE_ERROR("Unknown strategy");
         }
 
-        if (num_windows <= _impl->num_threads() * 4) {         //4 means NEON
-            num_threads = 1;
+        if (_impl->_num_threads_big != _impl->_num_threads) {
+            unsigned int num_threads_little = _impl->_num_threads - _impl->_num_threads_big;
+            if (num_threads_little != _impl->_num_threads) {
+                // Heterogeneous situation
+                unsigned int homogeneous_num_threads = std::max<unsigned int>(num_threads_little, _impl->_num_threads_big);
+                if (num_windows < _impl->_num_threads_big * 3 + num_threads_little) {         //4 means NEON
+                    num_threads = std::min<unsigned int>(num_threads, homogeneous_num_threads);
+                    num_windows = num_threads;
+                }
+            }
         }
-        ARM_COMPUTE_LOG_RUNTIME_INFO("num_interations "<< num_iterations);
+
+        ARM_COMPUTE_LOG_RUNTIME_INFO("num_iterations "<< num_iterations);
         ARM_COMPUTE_LOG_RUNTIME_INFO("num_threads "<< num_threads);
 
         if (num_iterations == 0)
@@ -1221,29 +1654,58 @@ void SmartScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, con
             std::vector<WorkloadWindow>& workload_windows = SmartScheduler::get().windows();
             workload_windows.clear();
 
-            std::vector<IScheduler::Workload> workloads(num_windows);
-            for (unsigned int t = 0; t < num_windows; ++t)
-            {
-                workloads[t] = [t, &kernel, &tensors, &windows](const ThreadInfo &info)
+            _impl->_is_kernel_conversion = false;
+
+            
+            // // Check if kernel conversion is enabled
+            // auto execute_workload = [&tensors](ICPPKernel *exec_kernel, const Window &exec_window, const ThreadInfo &info)
+            // {
+            //     Window win = exec_window;
+            //     win.validate();
+                
+            //     std::cout << "Thread " << info.thread_id << " executing workload with kernel " 
+            //             << exec_kernel->name() << std::endl;
+                
+            //     if (tensors.empty())
+            //     {
+            //         exec_kernel->run(win, info);
+            //     }
+            //     else
+            //     {
+            //         exec_kernel->run_op(tensors, win, info);
+            //     }
+            // };
+            if (hints.is_kernel_conversion_enabled()) {
+            // Define workload function that accepts kernel and window as parameters
+                // Use the new block-based kernel conversion approach
+                run_with_kernel_conversion(kernel, hints, tensors);
+            } else {
+                // Fallback to original approach for non-conversion cases
+                std::vector<IScheduler::Workload> workloads(num_windows);
+                for (unsigned int t = 0; t < num_windows; ++t)
                 {
-                    Window win = windows[t];
-                    win.validate();
+                    workloads[t] = [t, &kernel, &tensors, &windows](const ThreadInfo &info)
+                    {
+                        Window win = windows[t];
+                        win.validate();
 
-                    if (tensors.empty())
-                    {
-                        kernel->run(win, info);
-                    }
-                    else
-                    {
-                        kernel->run_op(tensors, win, info);
-                    }
-                };
-                workload_windows.emplace_back(windows[t], hints.split_dimension(), t, kernel->can_merge_window());
+                        if (tensors.empty())
+                        {
+                            kernel->run(win, info);
+                        }
+                        else
+                        {
+                            kernel->run_op(tensors, win, info);
+                        }
+                    };
+                    workload_windows.emplace_back(windows[t], hints.split_dimension(), t, kernel->can_merge_window());
+                }
+
+                // SmartScheduler::get().set_windows(workload_windows);
+
+                run_workloads(workloads);
             }
-
-            // SmartScheduler::get().set_windows(workload_windows);
-
-            run_workloads(workloads);
+            
         }
     }
 
@@ -1285,6 +1747,479 @@ void SmartScheduler::run_tagged_workloads(std::vector<Workload> &workloads, cons
     ss.str("");
     ss << "E|" << tid;
     IScheduler::write_to_trace_marker(ss.str());
+}
+
+void SmartScheduler::run_with_kernel_conversion(ICPPKernel *primary_kernel, 
+                                               const Hints &hints, 
+                                            //    const Window &max_window,
+                                               ITensorPack &tensors)
+                                            //    std::function<void(ICPPKernel*, const Window&, const ThreadInfo&)> execute_workload)
+{
+    std::stringstream ss;
+    pid_t tid = gettid();
+    ss << "B|" << tid << "|" << "Run with kernel conversion";
+    IScheduler::write_to_trace_marker(ss.str());
+
+    ss.str("");
+    ss << "B|" << tid << "|" << "Divide the block";
+    IScheduler::write_to_trace_marker(ss.str());
+    // std::cout << "\033[1;32m=== Starting Kernel Conversion Scheduling ===\033[0m" << std::endl;
+    
+    // Get conversion configuration
+    const auto primary_dims = hints.get_primary_kernel_dims();
+    const auto alternate_dims = hints.get_alternate_kernel_dims();
+    const auto matrix_dims = hints.get_output_matrix_dims();
+    
+    // std::cout << "Primary kernel dims: " << primary_dims.first << "x" << primary_dims.second << std::endl;
+    // std::cout << "Alternate kernel dims: " << alternate_dims.first << "x" << alternate_dims.second << std::endl;
+    // std::cout << "Output matrix dims: " << matrix_dims.first << "x" << matrix_dims.second << std::endl;
+    
+    // Create conversion configuration with LCM-based block calculation
+    // KernelConverter::ConversionConfig config(
+    //     primary_dims.first, primary_dims.second,
+    //     alternate_dims.first, alternate_dims.second,
+    //     matrix_dims.first, matrix_dims.second
+    // );
+    
+    // Calculate block dimensions using LCM 
+    unsigned int block_height = KernelConverter::lcm(primary_dims.first, alternate_dims.first);
+    unsigned int block_width = KernelConverter::lcm(primary_dims.second, alternate_dims.second);
+    
+    // std::cout << "Block dimensions: " << block_height << "x" << block_width << std::endl;
+    
+    // Calculate number of blocks in output matrix
+    unsigned int num_block_rows = (matrix_dims.first + block_height - 1) / block_height;  // o
+    unsigned int num_block_cols = (matrix_dims.second + block_width - 1) / block_width;   // p
+    unsigned int total_blocks = num_block_rows * num_block_cols;
+    
+    // std::cout << "Total blocks: " << num_block_rows << "x" << num_block_cols << " = " << total_blocks << std::endl;
+    
+    // // Determine kernel types (2D vs 1D)
+    // bool primary_is_2d = primary_dims.first > 1 && primary_dims.second > 1;
+    // bool alternate_is_2d = alternate_dims.first > 1 && alternate_dims.second > 1;
+    
+    // std::cout << "Primary kernel is " << (primary_is_2d ? "2D" : "1D") << std::endl;
+    // std::cout << "Alternate kernel is " << (alternate_is_2d ? "2D" : "1D") << std::endl;
+    
+    // Calculate big/little core ratio (example: assume 4 big + 4 little cores, 2:1 performance ratio)
+    unsigned int big_cores = _impl->_num_threads_big;
+    unsigned int little_cores = _impl->_num_threads - _impl->_num_threads_big;
+    float big_core_ratio = static_cast<float>(big_cores * 2) / (big_cores * 2 + little_cores); // Assume 2:1 performance ratio
+    
+    // Distribute blocks between big and little core queues
+    unsigned int big_core_blocks = static_cast<unsigned int>(total_blocks * big_core_ratio);
+    // unsigned int little_core_blocks = total_blocks - big_core_blocks;
+    
+    // std::cout << "Big core blocks: " << big_core_blocks << ", Little core blocks: " << little_core_blocks << std::endl;
+    _impl->_is_kernel_conversion= true;
+    _impl->_big_core_end_idx = big_core_blocks;
+    _impl->_kernel = primary_kernel;
+    _impl->_alternate_kernel = hints.get_alternate_kernel();
+
+    // Create block queues
+    std::vector<std::pair<unsigned int, unsigned int>> big_core_queue;   // (block_row, block_col)
+    std::vector<std::pair<unsigned int, unsigned int>> little_core_queue;
+    
+    // Distribute blocks in spatial order
+    unsigned int assigned_blocks = 0;
+    for (unsigned int col = 0; col < num_block_cols; ++col) {
+        for (unsigned int row = 0; row < num_block_rows; ++row) {
+            if (assigned_blocks < big_core_blocks) {
+                big_core_queue.emplace_back(row, col);
+            } else {
+                little_core_queue.emplace_back(row, col);
+            }
+            assigned_blocks++;
+        }
+    }
+    
+    ARM_COMPUTE_UNUSED(tensors);
+    ss.str("");
+    ss << "E|" << tid;
+    IScheduler::write_to_trace_marker(ss.str());
+
+    ss.str("");
+    ss << "B|" << tid << "|" << "Convert blocks to windows";
+    IScheduler::write_to_trace_marker(ss.str());
+    
+    // Create unified workloads and workload windows
+    std::vector<IScheduler::Workload> unified_workloads;
+    std::vector<WorkloadWindow> workload_windows;
+    
+    // Convert blocks to windows and create workloads for big cores (alternate kernel)
+    ICPPKernel *alternate_kernel = hints.get_alternate_kernel();
+    std::vector<std::vector<unsigned int>> big_core_windows = 
+        convert_blocks_to_windows(big_core_queue, block_height, block_width, 
+                                 alternate_dims.first, alternate_dims.second, 
+                                 matrix_dims.first, matrix_dims.second, alternate_kernel,
+                                 unified_workloads, workload_windows);
+    
+    // Convert blocks to windows and create workloads for little cores (primary kernel)
+    std::vector<std::vector<unsigned int>> little_core_windows = 
+        convert_blocks_to_windows(little_core_queue, block_height, block_width,
+                                 primary_dims.first, primary_dims.second,
+                                 matrix_dims.first, matrix_dims.second, primary_kernel,
+                                 unified_workloads, workload_windows);
+    
+    ss.str("");
+    ss << "E|" << tid;
+    IScheduler::write_to_trace_marker(ss.str());
+
+    // Set the workload windows for the scheduler
+    SmartScheduler::get().set_windows(workload_windows);
+    
+    ss.str("");
+    ss << "E|" << tid;
+    IScheduler::write_to_trace_marker(ss.str());
+    // Run the workloads
+    run_workloads(unified_workloads);
+
+}
+
+std::vector<std::vector<unsigned int>> SmartScheduler::convert_blocks_to_windows(
+    const std::vector<std::pair<unsigned int, unsigned int>> &blocks,
+    unsigned int block_height, unsigned int block_width,
+    unsigned int kernel_height, unsigned int kernel_width,
+    unsigned int matrix_height, unsigned int matrix_width,
+    ICPPKernel *kernel,
+    std::vector<IScheduler::Workload> &unified_workloads,
+    std::vector<WorkloadWindow> &workload_windows)
+{
+    std::stringstream ss;
+    pid_t tid = gettid();
+    ss << "B|" << tid << "|" << "Convert blocks to windows Step1";
+    IScheduler::write_to_trace_marker(ss.str());
+
+    std::vector<std::vector<unsigned int>> result;
+    
+    // Calculate how many kernel windows are needed for each block dimension
+    unsigned int kernels_per_block_height = block_height / kernel_height;
+    unsigned int kernels_per_block_width = block_width / kernel_width;
+    
+    // Calculate total windows for the kernel type
+    unsigned int total_window_rows = (matrix_height + kernel_height - 1) / kernel_height;
+    unsigned int total_window_cols = (matrix_width + kernel_width - 1) / kernel_width;
+    
+    // std::cout << "Block conversion: " << kernels_per_block_height << "x" << kernels_per_block_width 
+    //           << " kernels per block, total windows: " << total_window_rows << "x" << total_window_cols << std::endl;
+    
+    // Step 1: Create individual windows from kernel (only once)
+    std::vector<Window> individual_windows;
+    Window base_window = kernel->window();
+    
+    // for (unsigned int mi = 0; mi < base_window.num_iterations(Window::DimY); ++mi) {
+    //     for (unsigned int ni = 0; ni < base_window.num_iterations(Window::DimX); ++ni) {
+    //         Window win = base_window.split_window(Window::DimY, mi, base_window.num_iterations(Window::DimY))
+    //                                 .split_window(Window::DimX, ni, base_window.num_iterations(Window::DimX));
+    //         individual_windows.push_back(win);
+    //     }
+    // }
+    
+    ss.str("");
+    ss << "E|" << tid;
+    IScheduler::write_to_trace_marker(ss.str());
+
+    ss.str("");
+    ss << "B|" << tid << "|" << "Convert blocks to windows Step2";
+    IScheduler::write_to_trace_marker(ss.str());
+    // Step 2: Process each block
+
+    for (const auto &block : blocks) {
+        unsigned int block_row = block.first;
+        unsigned int block_col = block.second;
+
+        WorkloadWindow new_workload_window = convert_block_to_merged_window(block_row, block_col, 1, kernels_per_block_height, kernels_per_block_width, total_window_rows, total_window_cols, base_window);
+        // printf("new_window[DimY].start(): %d, new_window[DimY].end(): %d\n", new_workload_window.window[Window::DimY].start(), new_workload_window.window[Window::DimY].end());
+        // printf("new_window[DimX].start(): %d, new_window[DimX].end(): %d\n", new_workload_window.window[Window::DimX].start(), new_workload_window.window[Window::DimX].end());
+        Window merged_window = new_workload_window.window;
+        
+        // Create workload
+        // size_t workload_id = unified_workloads.size();
+        unified_workloads.emplace_back([kernel, merged_window](ThreadInfo &info) {
+            // printf("Thread %d executing windows for kernel %s with workload id %d, start_x: %d, start_y: %d, end_x: %d, end_y: %d\n", info.true_thread_id, kernel->name(), info.thread_id, merged_window[Window::DimX].start(), merged_window[Window::DimY].start(), merged_window[Window::DimX].end(), merged_window[Window::DimY].end());
+                
+            ITensorPack tensors = SmartScheduler::get().tensors();
+            if (tensors.empty()) {
+                kernel->run(merged_window, info);
+            } else {
+                kernel->run_op(tensors, merged_window, info);
+            }
+        });
+        
+        // Create WorkloadWindow entry
+        workload_windows.emplace_back(
+            new_workload_window
+        );
+        
+    }
+
+
+    /*
+    for (const auto &block : blocks) {
+        ss.str("");
+        ss << "B|" << tid << "|" << "Convert blocks to windows Step2.1, block_id: " << block_id;
+        IScheduler::write_to_trace_marker(ss.str());
+        block_id++;
+
+        unsigned int block_row = block.first;
+        unsigned int block_col = block.second;
+        
+        // Calculate expected window range for this block
+        unsigned int expected_min_row = block_row * kernels_per_block_height;
+        unsigned int expected_min_col = block_col * kernels_per_block_width;
+        
+        std::vector<unsigned int> window_indices;
+        
+        // Collect window indices and track actual min/max in one pass
+        unsigned int min_row_idx = expected_min_row;
+        unsigned int min_col_idx = expected_min_col;
+        unsigned int max_row_idx = expected_min_row;
+        unsigned int max_col_idx = expected_min_col;
+        ss.str("");
+        ss << "E|" << tid;
+        IScheduler::write_to_trace_marker(ss.str());
+
+        ss.str("");
+        ss << "B|" << tid << "|" << "Convert blocks to windows Step2.2, block_id: " << block_id;
+        IScheduler::write_to_trace_marker(ss.str());
+        
+        for (unsigned int k_col = 0; k_col < kernels_per_block_width; ++k_col) {
+            for (unsigned int k_row = 0; k_row < kernels_per_block_height; ++k_row) {
+                unsigned int window_col = expected_min_col + k_col;
+                unsigned int window_row = expected_min_row + k_row;
+                
+                // Check bounds
+                if (window_row < total_window_rows && window_col < total_window_cols) {
+                    // Column-major indexing
+                    unsigned int window_index = window_col * total_window_rows + window_row;
+                    window_indices.push_back(window_index);
+                    
+                    // Track actual min/max in the same loop
+                    min_row_idx = std::min(min_row_idx, window_row);
+                    min_col_idx = std::min(min_col_idx, window_col);
+                    max_row_idx = std::max(max_row_idx, window_row);
+                    max_col_idx = std::max(max_col_idx, window_col);
+                }
+            }
+        }
+        
+        result.push_back(window_indices);
+        
+        ss.str("");
+        ss << "E|" << tid;
+        IScheduler::write_to_trace_marker(ss.str());
+
+        ss.str("");
+        ss << "B|" << tid << "|" << "Convert blocks to windows Step3, block_id: " << block_id;
+        IScheduler::write_to_trace_marker(ss.str());
+        // Step 3: Create merged window and workload
+        if (!window_indices.empty()) {
+            // Check if this block has the expected number of windows
+            bool can_transform = (window_indices.size() == kernels_per_block_height * kernels_per_block_width);
+            
+            // Calculate window boundaries directly from indices
+            unsigned int y_start = min_row_idx * kernel_height;
+            unsigned int y_end = std::min((max_row_idx + 1) * kernel_height, matrix_height);
+            unsigned int x_start = min_col_idx * kernel_width;
+            unsigned int x_end = std::min((max_col_idx + 1) * kernel_width, matrix_width);
+            
+            // Create merged window from the first window in the block
+
+            // if (kernel->merge_type() == MergeType::DIM_BOTH) {
+                // printf("DIM_BOTH\n");
+            Window merged_window = individual_windows[window_indices[0]];
+            Window last_window = individual_windows[window_indices[window_indices.size() - 1]];
+            merged_window.adjust(Window::DimY, last_window[Window::DimY].end() - merged_window[Window::DimY].end(), false);
+            merged_window.adjust(Window::DimX, last_window[Window::DimX].end() - merged_window[Window::DimX].end(), false);
+            printf("merged_window[DimY].start(): %d, last_window[DimY].end(): %d\n", merged_window[Window::DimY].start(), last_window[Window::DimY].end());
+            printf("merged_window[DimX].start(): %d, last_window[DimX].end(): %d\n", merged_window[Window::DimX].start(), last_window[Window::DimX].end());
+
+            // } else if (kernel->merge_type() == MergeType::DIM_X) {
+            //     // printf("DIM_X\n");
+            //     for (unsigned int i = 0; i < kernels_per_block_width; i++) {
+            //         Window merged_window = individual_windows[window_indices[i * kernels_per_block_height]];
+            //         Window last_window = individual_windows[window_indices[(i + 1) * kernels_per_block_height - 1]];
+            //         merged_window.adjust(Window::DimX, last_window[Window::DimX].end() - merged_window[Window::DimX].end(), false);
+            //         // printf("merged_window[DimY].start(): %d, last_window[DimY].end(): %d\n", merged_window[Window::DimY].start(), last_window[Window::DimY].end());
+            //         // printf("merged_window[DimX].start(): %d, last_window[DimX].end(): %d\n", merged_window[Window::DimX].start(), last_window[Window::DimX].end());
+            //         windows.push_back(merged_window);
+            //     }
+            // }
+            WorkloadWindow new_window = convert_block_to_merged_window(block_row, block_col, 1, kernels_per_block_height, kernels_per_block_width, total_window_rows, total_window_cols, merged_window);
+            printf("new_window[DimY].start(): %d, new_window[DimY].end(): %d\n", new_window.window[Window::DimY].start(), new_window.window[Window::DimY].end());
+            printf("new_window[DimX].start(): %d, new_window[DimX].end(): %d\n", new_window.window[Window::DimX].start(), new_window.window[Window::DimX].end());
+            
+            // Create workload
+            size_t workload_id = unified_workloads.size();
+            unified_workloads.emplace_back([kernel, merged_window](ThreadInfo &info) {
+                printf("Thread %d executing windows for kernel %s with workload id %d, start_x: %d, start_y: %d, end_x: %d, end_y: %d\n", info.true_thread_id, kernel->name(), info.thread_id, merged_window[Window::DimX].start(), merged_window[Window::DimY].start(), merged_window[Window::DimX].end(), merged_window[Window::DimY].end());
+                
+                    
+                ITensorPack tensors = SmartScheduler::get().tensors();
+                if (tensors.empty()) {
+                    kernel->run(merged_window, info);
+                } else {
+                    kernel->run_op(tensors, merged_window, info);
+                }
+            });
+            
+            // Create WorkloadWindow entry
+            workload_windows.emplace_back(
+                merged_window,                    // merged window  TODO:
+                0,                                // split_dimension
+                workload_id,                      // workload id
+                min_row_idx,                      // row_idx (from window_indices calculation)
+                min_col_idx,                      // column_idx (from window_indices calculation)
+                true,                             // divisible
+                SmartScheduler::BlockConfig(kernels_per_block_height, kernels_per_block_width, total_window_rows, total_window_cols),
+                can_transform,                     // can_transform parameter
+                true,
+                block_row,
+                block_col
+            );
+            
+            std::cout << "Block (" << block_row << "," << block_col << ") -> " << window_indices.size() << " [";
+            for (unsigned int idx : window_indices) {
+                std::cout << idx << " ";
+            }
+            std::cout << "] merged into workload " << workload_id
+                     << " with window [" << y_start << "," << y_end << ")x[" << x_start << "," << x_end << ")"
+                     << ", can_t: " << (can_transform ? "true" : "false")
+                     << std::endl;
+        }
+        ss.str("");
+        ss << "E|" << tid;
+        IScheduler::write_to_trace_marker(ss.str());
+
+    }
+    */
+
+    ss.str("");
+    ss << "E|" << tid;
+    IScheduler::write_to_trace_marker(ss.str());
+    
+    return result;
+}
+
+
+
+int SmartScheduler::find_min_granule_size(ICPPKernel *kernel, const Window &window, size_t original_split_dimension)
+{
+    /* Profile by SmartScheduler */
+    ARM_COMPUTE_UNUSED(window, original_split_dimension);
+    const std::string kernel_name = kernel->name();
+    // Define dimension constraints for specific kernels
+    std::vector<std::size_t> forbidden_dims;
+    std::vector<std::size_t> allowed_dims;
+
+    // if(_impl->_num_threads_big != _impl->_num_threads) {
+    //     unsigned int num_threads_little = _impl->_num_threads - _impl->_num_threads_big;
+    //     // if (num_threads_little != _impl->_num_threads) {
+    //         // Heterogeneous situation
+    //         // unsigned int homogeneous_num_threads = std::max<unsigned int>(num_threads_little, _impl->_num_threads_big);
+    //     // }
+    // }
+
+    // if (kernel_name.find("CpuGemmAssemblyWrapperKernel") == std::string::npos || kernel_name.find("a64_sgemm") != std::string::npos) {
+    //     unsigned int num_threads_little = _impl->_num_threads - _impl->_num_threads_big;
+    //     return _impl->_num_threads_big * 3 + num_threads_little;
+    // } 
+
+    return -1;
+}
+
+std::size_t SmartScheduler::find_optimal_dimension(ICPPKernel *kernel, const Window &window, size_t original_split_dimension)
+{
+    /* Profile by SmartScheduler */
+    const std::string kernel_name = kernel->name();
+    // Define dimension constraints for specific kernels
+    std::vector<std::size_t> forbidden_dims;
+    std::vector<std::size_t> allowed_dims;
+    
+    if (kernel_name.find("CpuGemmAssemblyWrapperKernel") != std::string::npos) {
+        ARM_COMPUTE_LOG_RUNTIME_INFO("Finding max dimension for " << kernel_name);
+        return find_max_num_of_windows(window, original_split_dimension);
+    }
+
+    if (kernel_name.find("FuseBatchNormalizationKernel") != std::string::npos) {
+        ARM_COMPUTE_LOG_RUNTIME_INFO("Finding optimal dimension for " << kernel_name);
+        forbidden_dims.push_back(0); // Disallow DimX for this kernel
+    } 
+     
+    // For other kernels, find the smallest dimension with enough iterations for good parallelism
+    const unsigned int min_iterations_threshold = _impl->num_threads() * 3; // Ensure enough work per thread
+    
+    // Find the dimension with minimum iterations that still exceeds the threshold
+    std::size_t best_dim = original_split_dimension;
+    unsigned int best_iterations = window.num_iterations(original_split_dimension);
+    
+    // Check if original_split_dimension is in forbidden_dims
+    bool original_dim_forbidden = std::find(forbidden_dims.begin(), forbidden_dims.end(), 
+                                           original_split_dimension) != forbidden_dims.end();
+    
+    // If original dimension is forbidden, we need to find an alternative
+    if (original_dim_forbidden) {
+        // Reset best_dim to an invalid value to force selection of a new dimension
+        best_dim = static_cast<std::size_t>(-1);
+        best_iterations = UINT_MAX;
+    }
+    
+    for (std::size_t dims = Window::DimX; dims <= Window::DimW; ++dims) {
+        // Skip forbidden dimensions
+        if (std::find(forbidden_dims.begin(), forbidden_dims.end(), dims) != forbidden_dims.end()) {
+            continue;
+        }
+        
+        // Only consider allowed dimensions if specified
+        if (!allowed_dims.empty() && 
+            std::find(allowed_dims.begin(), allowed_dims.end(), dims) == allowed_dims.end()) {
+            continue;
+        }
+        
+        unsigned int iterations = window.num_iterations(dims);
+        
+        // First valid dimension if best_dim is invalid
+        if (best_dim == static_cast<std::size_t>(-1) && iterations >= min_iterations_threshold) {
+            best_dim = dims;
+            best_iterations = iterations;
+            continue;
+        }
+        
+        // If this dimension has enough iterations and fewer than our current best (or our current best doesn't meet threshold)
+        if (iterations >= min_iterations_threshold && 
+            (iterations < best_iterations || best_iterations < min_iterations_threshold)) {
+            best_dim = dims;
+            best_iterations = iterations;
+        }
+    }
+    
+    // If we couldn't find a suitable dimension, revert to original (unless it was forbidden)
+    if (best_dim == static_cast<std::size_t>(-1)) {
+        if (!original_dim_forbidden) {
+            best_dim = original_split_dimension;
+        } else {
+            // Find any valid dimension as fallback
+            for (std::size_t dims = Window::DimX; dims <= Window::DimW; ++dims) {
+                if (std::find(forbidden_dims.begin(), forbidden_dims.end(), dims) == forbidden_dims.end()) {
+                    best_dim = dims;
+                    break;
+                }
+            }
+            // Last resort - use original despite being forbidden
+            if (best_dim == static_cast<std::size_t>(-1)) {
+                best_dim = original_split_dimension;
+            }
+        }
+    }
+    
+    if (best_dim != original_split_dimension) {
+        ARM_COMPUTE_LOG_RUNTIME_INFO("Switching from dimension " << original_split_dimension 
+                                    << " to " << best_dim << " for " << kernel_name);
+    } else {
+        ARM_COMPUTE_LOG_RUNTIME_INFO("Using original dimension " << original_split_dimension << " for " << kernel_name);
+    }
+    
+    return best_dim;
 }
 
 std::size_t SmartScheduler::find_max_num_of_windows(const Window &window, size_t original_split_dimension)
@@ -1348,5 +2283,100 @@ std::size_t SmartScheduler::adjust_num_of_windows(const Window     &window,
     return 1; //  If the workload is so small that it can't be split, we should run a single thread
 }
 
+
+// Big core thread worker function
+void SmartScheduler::Impl::big_core_worker_thread()
+{
+    
+    while (!_big_core_thread_shutdown.load(std::memory_order_acquire))
+    {
+        std::function<void()> operation;
+        
+        {
+            std::unique_lock<std::mutex> lock(_big_core_mutex);
+            _big_core_cv.wait(lock, [this] {
+                return !_big_core_operations.empty() || _big_core_thread_shutdown.load(std::memory_order_acquire);
+            });
+            
+            if (_big_core_thread_shutdown.load(std::memory_order_acquire)) {
+                break;
+            }
+            
+            if (!_big_core_operations.empty()) {
+                operation = std::move(_big_core_operations.front());
+                _big_core_operations.pop();
+            }
+        }
+        
+        if (operation) {
+            try {
+                operation();
+            } catch (...) {
+                _big_core_exception = std::current_exception();
+            }
+            
+            _big_core_operation_pending.store(false, std::memory_order_release);
+            _big_core_cv.notify_all();
+        }
+    }
+    
+}
+
+void SmartScheduler::init_big_core_thread()
+{
+    if (!_impl->_big_core_thread_running.load(std::memory_order_acquire)) {
+        _impl->_big_core_thread_running.store(true, std::memory_order_release);
+        _impl->_big_core_thread_shutdown.store(false, std::memory_order_release);
+        _impl->_big_core_thread = std::thread(&SmartScheduler::Impl::big_core_worker_thread, _impl.get());
+    }
+}
+
+void SmartScheduler::shutdown_big_core_thread()
+{
+    if (_impl->_big_core_thread_running.load(std::memory_order_acquire)) {
+        _impl->_big_core_thread_shutdown.store(true, std::memory_order_release);
+        _impl->_big_core_cv.notify_all();
+        
+        if (_impl->_big_core_thread.joinable()) {
+            _impl->_big_core_thread.join();
+        }
+        
+        _impl->_big_core_thread_running.store(false, std::memory_order_release);
+    }
+}
+
+void SmartScheduler::submit_big_core_operation(std::function<void()> operation)
+{
+    if (!_impl->_big_core_thread_running.load(std::memory_order_acquire)) {
+        init_big_core_thread();
+    }
+    
+    {
+        std::lock_guard<std::mutex> lock(_impl->_big_core_mutex);
+        _impl->_big_core_operations.push(std::move(operation));
+        _impl->_big_core_operation_pending.store(true, std::memory_order_release);
+    }
+    _impl->_big_core_cv.notify_one();
+}
+
+void SmartScheduler::wait_for_big_core_operations()
+{
+    if (!_impl->_big_core_thread_running.load(std::memory_order_acquire)) {
+        return;
+    }
+    
+    std::unique_lock<std::mutex> lock(_impl->_big_core_mutex);
+    _impl->_big_core_cv.wait(lock, [this] {
+        return _impl->_big_core_operations.empty() && 
+               !_impl->_big_core_operation_pending.load(std::memory_order_acquire);
+    });
+    
+    // Check for exceptions
+    if (_impl->_big_core_exception) {
+        std::exception_ptr exception = _impl->_big_core_exception;
+        _impl->_big_core_exception = nullptr;
+        std::rethrow_exception(exception);
+    }
+}
 
 } // namespace arm_compute

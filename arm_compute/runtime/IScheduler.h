@@ -76,9 +76,13 @@ public:
          * @param[in] threshold       (Optional) Dynamic scheduling capping threshold.
          */
         Hints(unsigned int split_dimension, StrategyHint strategy = StrategyHint::STATIC, int threshold = 0)
-            : _split_dimension(split_dimension), _strategy(strategy), _threshold(threshold)
+            : _split_dimension(split_dimension), _strategy(strategy), _threshold(threshold), 
+              _enable_kernel_conversion(false), _alternate_kernel(nullptr), _kernel_out_height_primary(0), 
+              _kernel_out_width_primary(0), _kernel_out_height_alternate(0), _kernel_out_width_alternate(0),
+              _output_matrix_height(0), _output_matrix_width(0)
         {
         }
+        
         /** Set the split_dimension hint
          *
          * @param[in] split_dimension Dimension along which to split the kernel's execution window.
@@ -138,11 +142,97 @@ public:
         {
             return _threshold;
         }
+        
+        /** Enable kernel conversion and set alternate gemm kernel
+         *
+         * @param[in] alternate_gemm          Pointer to alternate gemm kernel
+         * @param[in] primary_out_height      Primary kernel output height
+         * @param[in] primary_out_width       Primary kernel output width
+         * @param[in] alternate_out_height    Alternate kernel output height
+         * @param[in] alternate_out_width     Alternate kernel output width
+         * @param[in] output_matrix_height    Output matrix height
+         * @param[in] output_matrix_width     Output matrix width
+         *
+         * @return the Hints object
+         */
+        Hints &set_kernel_conversion(ICPPKernel *alternate_kernel,
+                                   unsigned int primary_out_height,
+                                   unsigned int primary_out_width,
+                                   unsigned int alternate_out_height,
+                                   unsigned int alternate_out_width,
+                                   unsigned int output_matrix_height,
+                                   unsigned int output_matrix_width)
+        {
+            _enable_kernel_conversion = true;
+            _alternate_kernel = alternate_kernel;
+            _kernel_out_height_primary = primary_out_height;
+            _kernel_out_width_primary = primary_out_width;
+            _kernel_out_height_alternate = alternate_out_height;
+            _kernel_out_width_alternate = alternate_out_width;
+            _output_matrix_height = output_matrix_height;
+            _output_matrix_width = output_matrix_width;
+            return *this;
+        }
+        
+        /** Check if kernel conversion is enabled
+         *
+         * @return True if kernel conversion is enabled
+         */
+        bool is_kernel_conversion_enabled() const
+        {
+            return _enable_kernel_conversion;
+        }
+        
+        /** Get alternate gemm kernel
+         *
+         * @return Pointer to alternate gemm kernel
+         */
+        ICPPKernel *get_alternate_kernel() const
+        {
+            return _alternate_kernel;
+        }
+        
+        /** Get primary kernel dimensions
+         *
+         * @return Pair of (height, width)
+         */
+        std::pair<unsigned int, unsigned int> get_primary_kernel_dims() const
+        {
+            return {_kernel_out_height_primary, _kernel_out_width_primary};
+        }
+        
+        /** Get alternate kernel dimensions
+         *
+         * @return Pair of (height, width)
+         */
+        std::pair<unsigned int, unsigned int> get_alternate_kernel_dims() const
+        {
+            return {_kernel_out_height_alternate, _kernel_out_width_alternate};
+        }
+        
+        /** Get output matrix dimensions
+         *
+         * @return Pair of (height, width)
+         */
+        std::pair<unsigned int, unsigned int> get_output_matrix_dims() const
+        {
+            return {_output_matrix_height, _output_matrix_width};
+        }
 
     private:
         unsigned int _split_dimension{};
         StrategyHint _strategy{};
         int          _threshold{};
+        
+        // Kernel conversion support
+        bool         _enable_kernel_conversion;
+        ICPPKernel*        _alternate_kernel;
+        unsigned int _kernel_out_height_primary;
+        unsigned int _kernel_out_width_primary;
+        unsigned int _kernel_out_height_alternate;
+        unsigned int _kernel_out_width_alternate;
+        unsigned int _output_matrix_height;
+        unsigned int _output_matrix_width;
     };
     /** Signature for the workloads to execute */
     using Workload = std::function<void(ThreadInfo &)>;

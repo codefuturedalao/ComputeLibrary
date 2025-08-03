@@ -93,12 +93,20 @@ bool find_implementation(
     }
 
     const auto cycle_estimate = impl->get_cycle_estimate(args, os);
+    // std::cout << "DEPTHWISE Impl Name : " << impl->name << " , " << cycle_estimate << std::endl;
 
     if (cycle_estimate == 0)
     {
       selected = impl;
       break;
     }
+
+    // if (strcmp(impl->name, "a64_fp32_nhwc_3x3_s1_output4x4_mla_depthfirst") == 0) {
+    // if (strcmp(impl->name, "a64_fp32_nhwc_3x3_s1_output3x3_mla_depthfirst") == 0) {
+    // if (strcmp(impl->name, "a64_fp32_nhwc_3x3_s1_output2x2_mla_depthfirst") == 0) {
+    //   selected = impl;
+    //   break;
+    // }
 
     if (selected == nullptr || cycle_estimate < best_cycle_estimate)
     {

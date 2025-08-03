@@ -22,6 +22,7 @@
  * SOFTWARE.
  */
 #include "arm_compute/runtime/CPP/AsyMoScheduler.h"
+#include "arm_compute/runtime/CPP/SmartScheduler.h"
 
 #include "arm_compute/core/CPP/ICPPKernel.h"
 #include "arm_compute/core/Error.h"
@@ -116,7 +117,9 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
         IScheduler::write_to_trace_marker(ss.str());
         ARM_COMPUTE_ERROR_ON(workload_index >= workloads.size());
         info_local.thread_id = workload_index;  //for some kernels that use the thread_id to split workload instead of window
+
         workloads[workload_index](info_local);
+
         ss.str(""); 
         ss << "E|" << pid;
         IScheduler::write_to_trace_marker(ss.str());
@@ -135,6 +138,8 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
     ss << "E|" << pid;
     IScheduler::write_to_trace_marker(ss.str());
 
+    auto end_time = std::chrono::high_resolution_clock::now();
+    IScheduler::thread_end_time[thread_id] = end_time;
     // std::printf("Thread %d: %d\n", thread_id, IScheduler::workload_time[thread_id]);
 }
 
@@ -399,8 +404,6 @@ void Thread::worker_thread()
 #endif /* ARM_COMPUTE_EXCEPTIONS_DISABLED */
         _workloads    = nullptr;
         _job_complete = true;  
-        auto end_time = std::chrono::high_resolution_clock::now();
-        IScheduler::thread_end_time[_info.thread_id] = end_time;
         lock.unlock();
         _cv.notify_one();
     }
@@ -443,28 +446,11 @@ struct AsyMoScheduler::Impl final
     {
         //ARM_COMPUTE_LOG_RUNTIME_INFO( "Num_threads" << num_threads);
         //ARM_COMPUTE_LOG_RUNTIME_INFO( "threads_hint" << thread_hint);
-        /* One Big core with three small cores */
-        if (num_threads == 4 && IScheduler::sw_flag) {
-            // Set affinity on worked threads
-            _num_threads = num_threads;
-            _threads.resize(_num_threads - 1);
-            workload_time.resize(_num_threads, 0);
-            thread_end_time.resize(_num_threads);
-
-            set_thread_affinity("10");
-            auto         thread_it = _threads.begin();
-            std::string mask[] = {"20", "08", "04"};
-            for (auto i = 1U; i < _num_threads; ++i, ++thread_it)
-            {
-                thread_it->force_schedule(mask[i - 1]);
-            }
-        } else {
-            _num_threads = num_threads == 0 ? thread_hint : num_threads;
-            ARM_COMPUTE_LOG_RUNTIME_INFO( "[AsyMoScheduler::set_num_threads]---> " << _num_threads << " _num_threads" << std::endl);
-            _threads.resize(_num_threads - 1);
-            workload_time.resize(_num_threads, 0);
-            thread_end_time.resize(_num_threads);
-        }
+        _num_threads = num_threads == 0 ? thread_hint : num_threads;
+        ARM_COMPUTE_LOG_RUNTIME_INFO( "[AsyMoScheduler::set_num_threads]---> " << _num_threads << " _num_threads" << std::endl);
+        _threads.resize(_num_threads - 1);
+        workload_time.resize(_num_threads, 0);
+        thread_end_time.resize(_num_threads);
         auto_switch_mode(_num_threads);
     }
     void set_num_threads_with_affinity(unsigned int num_threads, unsigned int thread_hint, BindFunc func)
@@ -556,12 +542,6 @@ struct AsyMoScheduler::Impl final
     unsigned int       _wake_fanout{0};
 };
 
-bool AsyMoScheduler::scheduling_mode = false;           //Control by the cmd parser
-void AsyMoScheduler::set_scheduling_mode(bool scheduling_mode)
-{
-    AsyMoScheduler::scheduling_mode = scheduling_mode;
-    ARM_COMPUTE_LOG_RUNTIME_INFO( "Set scheduling_mode to " << scheduling_mode << std::endl);   
-}
 
 /*
  * This singleton has been deprecated and will be removed in future releases
@@ -577,7 +557,6 @@ AsyMoScheduler::AsyMoScheduler() : _impl(std::make_unique<Impl>(num_threads_hint
 }
 
 AsyMoScheduler::~AsyMoScheduler(){
-    std::printf("AsyMoScheduler destructor\n");
    _impl-> _threads.clear();
 }
 
@@ -708,11 +687,23 @@ void AsyMoScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
         if (IScheduler::run_stage_flag) {
             IScheduler::run_processor_time.push_back(max_val);
         }
+
+        auto max_end_it = std::max_element(IScheduler::thread_end_time.begin(), IScheduler::thread_end_time.end(),
+            [](const auto& a, const auto& b) { return a < b; });
+        auto min_end_it = std::min_element(IScheduler::thread_end_time.begin(), IScheduler::thread_end_time.end(),
+            [](const auto& a, const auto& b) { return a < b; });
+        auto max_end_val = *max_end_it;
+        auto min_end_val = *min_end_it;
+        auto thread_wait_latency_duration = std::chrono::duration_cast<std::chrono::microseconds>(max_end_val - min_end_val).count();
+        IScheduler::thread_wait_latency.push_back(thread_wait_latency_duration);
+        IScheduler::thread_end_time.clear();
+
         ARM_COMPUTE_LOG_RUNTIME_INFO("wait_latency_curr: " << max_val - min_val << " sched_latency_curr: " << duration_sum_workload - max_val << " run_processor_time_curr: " << (run_stage_flag ? max_val : 0));
         std::stringstream msg;
         msg << duration_sum_workload << ", " 
             << max_val << ","
-            << max_val - min_val << std::endl;
+            << max_val - min_val << ","
+            << thread_wait_latency_duration << std::endl;
         write_to_log_file(msg.str());
         IScheduler::workload_time.clear();
     }
@@ -721,11 +712,11 @@ void AsyMoScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
 
 void AsyMoScheduler::schedule_op(ICPPKernel *kernel, const Hints &hints, const Window &window, ITensorPack &tensors)
 {
-    // if(AsyMoScheduler::scheduling_mode) {   
+    // if(SmartScheduler::scheduling_mode) {   
     //     Hints scheduling_hint = Hints(hints.split_dimension(), IScheduler::StrategyHint::DYNAMIC, 256);
     //     schedule_common(kernel, scheduling_hint, window, tensors);
     // } else {
-    schedule_common(kernel, hints, window, tensors);
+        schedule_common(kernel, hints, window, tensors);
     // }
 }
 

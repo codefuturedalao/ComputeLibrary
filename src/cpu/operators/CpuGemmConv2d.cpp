@@ -566,8 +566,8 @@ void CpuGemmConv2d::configure(const ITensorInfo         *src,
                  gemm_3d_depth, fixed_format, weights_info.weight_format());
 
     // Can only decide isVarWeightsKernel after gemm is configured
-    _run_wt = !isVarWeightsKernel();
 
+    _run_wt = !isVarWeightsKernel();
     if (!_skip_col2im && _data_layout == DataLayout::NCHW)
     {
         // Configure col2im

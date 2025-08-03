@@ -51,7 +51,7 @@ std::ofstream IScheduler::trace_marker;
 int IScheduler::trace_marker_fd;
 
 bool IScheduler::sw_flag = false;               // This flag was deprecated
-bool IScheduler::log_flag = true;              // This flag was for kernel analysis
+bool IScheduler::log_flag = false;              // This flag was for kernel analysis
 bool IScheduler::ftrace_flag = true;          // This flag was for ftrace in perfetto
 const int IScheduler::capacity_arg = 4;
 const int IScheduler::capacity_arg_tagged = 7;
@@ -120,7 +120,7 @@ void IScheduler::write_to_log_file(const std::string& message) {
         std::string filename = "/data/local/tmp/kernel_profile.csv";
         _outputFile.open(filename);
         if(_outputFile.is_open()) {
-            _outputFile << "kernel_name, function_name, total_time, cpu_wall_time, wait_time" << std::endl;
+            _outputFile << "kernel_name, function_name, total_time, cpu_wall_time, wait_time, thread_wait_time" << std::endl;
             _outputFile << message;
         } else {
             ARM_COMPUTE_LOG_RUNTIME_ERROR("Failed to open file. ");
@@ -149,7 +149,7 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
     ARM_COMPUTE_ERROR_ON_MSG(!kernel, "The child class didn't set the kernel");
 #ifndef BARE_METAL
     const Window &max_window = window;
-    std::printf("---------%s--------\n", kernel->name());
+    // std::printf("---------%s--------\n", kernel->name());
 
     /* ftrace the start of the kernel */
     std::stringstream ss;
@@ -204,18 +204,19 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
             Not all the kernel can split by the optimal split dimension
         */
         // const unsigned int num_iterations_original = max_window.num_iterations(hints.split_dimension());
-        // std::cout << "We got split-dimension " << hints.split_dimension() << std::endl;
+        // // std::cout << "We got split-dimension " << hints.split_dimension() << std::endl;
         // if (SmartScheduler::scheduling_mode) {
         //     if (num_iterations_original == 1) {
         //         int optimal_split_dim = find_max_num_of_windows(max_window);
-        //         std::cout << "Find the optimal split dimension " << optimal_split_dim << std::endl;
+        //         // std::cout << "Find the optimal split dimension " << optimal_split_dim << std::endl;
         //         const_cast<IScheduler::Hints&>(hints).set_split_dimension(optimal_split_dim);
         //     }
         // }
         find_max_num_of_windows(max_window);
         const unsigned int num_iterations = max_window.num_iterations(hints.split_dimension());
         unsigned int num_threads = std::min(num_iterations, this->num_threads());
-
+        // std::cout << "split_dimension "<< hints.split_dimension() << std::endl;
+        // std::cout << "num_interations "<< num_iterations << std::endl;
 
         // if (SmartScheduler::scheduling_mode && std::strstr(kernel->name(), "NEFuseBatchNormalizationKernel") != nullptr) {
         //     num_threads = 1;
@@ -252,7 +253,7 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
         */
         ARM_COMPUTE_LOG_RUNTIME_INFO("num_interations "<< num_iterations);
         ARM_COMPUTE_LOG_RUNTIME_INFO("num_threads "<< num_threads);
-
+        // std::cout << "num_interations "<< num_iterations << std::endl;
         if (num_iterations == 0)
         {
             return;
@@ -298,6 +299,7 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
             auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count();
 
             IScheduler::wait_latency.push_back(0);
+            IScheduler::thread_wait_latency.push_back(0);
             IScheduler::sched_latency.push_back(elapsed - IScheduler::workload_time[0]);
             if (IScheduler::run_stage_flag) {
                 IScheduler::run_processor_time.push_back(IScheduler::workload_time[0]);
@@ -305,6 +307,7 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
             std::stringstream msg;
             msg << elapsed << ", " 
                 << IScheduler::workload_time[0] << ","
+                << 0 << ","
                 << 0 << std::endl;
             write_to_log_file(msg.str());
 
@@ -333,8 +336,33 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
             }
             // Make sure the smallest window is larger than minimum workload size
             ARM_COMPUTE_LOG_RUNTIME_INFO("num_windows "<< num_windows);
+            // std::cout << "num_windows "<< num_windows << std::endl;
+            // std::cout << "hints.split_dimension() "<< hints.split_dimension() << std::endl;
             num_windows = adjust_num_of_windows(max_window, hints.split_dimension(), num_windows, *kernel, cpu_info());
+
+            // Control Minimum workload size
+            if (std::string(kernel->name()).find("GemmAssemblyWrapperKernel") != std::string::npos && SmartScheduler::workload_size != -1) {
+                if (max_window.num_iterations(hints.split_dimension()) == 2091) {
+                    num_windows = SmartScheduler::workload_size;
+                }
+            }
+            if (std::string(kernel->name()).find("Im2ColKernel") != std::string::npos && SmartScheduler::workload_size != -1) {
+                if (max_window.num_iterations(hints.split_dimension()) == 112) {
+                    num_windows = std::min(64, SmartScheduler::workload_size);
+                }
+            }
+            if (std::string(kernel->name()).find("ReshapeKernel") != std::string::npos && SmartScheduler::workload_size != -1) {
+                if (max_window.num_iterations(hints.split_dimension()) == 1001) {
+                    num_windows = std::min(512, SmartScheduler::workload_size);
+                }
+            }
+            if (std::string(kernel->name()).find("Pool2d") != std::string::npos && SmartScheduler::workload_size != -1) {
+                if (max_window.num_iterations(hints.split_dimension()) == 1024) {
+                    num_windows = std::min(1024, SmartScheduler::workload_size);
+                }
+            }
             ARM_COMPUTE_LOG_RUNTIME_INFO("adjusted num_windows "<< num_windows);
+            // std::cout << "adjusted num_windows "<< num_windows << std::endl;
 
             std::vector<IScheduler::Workload> workloads(num_windows);
             for (unsigned int t = 0; t < num_windows; ++t)
@@ -405,10 +433,11 @@ void IScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, const W
     }
 
 
-    if (hints.strategy() == StrategyHint::DYNAMIC) {
-        thread_wait_latency.push_back(wait_latency.back());
-        ARM_COMPUTE_LOG_RUNTIME_INFO("thread_wait_latency: "<< thread_wait_latency.back());
-    }
+    // if (hints.strategy() == StrategyHint::DYNAMIC) {
+        // std::cout << "thread_wait_latency" << thread_wait_latency.back() << std::endl;
+        // thread_wait_latency.push_back(wait_latency.back());
+        // ARM_COMPUTE_LOG_RUNTIME_INFO("thread_wait_latency: "<< thread_wait_latency.back());
+    // }
     ss.str("");
     ss << "E|" << tid << "|" << kernel->name();
     IScheduler::write_to_trace_marker(ss.str());
@@ -490,6 +519,7 @@ std::size_t IScheduler::find_max_num_of_windows(const Window &window)
     for (std::size_t dims = Window::DimX; dims <= Window::DimW; ++dims)
     {
         ARM_COMPUTE_LOG_RUNTIME_INFO("Dim " << dims << " has " << window.num_iterations(dims) << " iterations.");
+        // std::cout << "Dim " << dims << " has " << window.num_iterations(dims) << " iterations." << std::endl;
         if (recommended_num_interations < window.num_iterations(dims))
         {
             recommended_split_dim = dims;

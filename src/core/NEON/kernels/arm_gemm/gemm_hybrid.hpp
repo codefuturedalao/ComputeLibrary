@@ -145,6 +145,10 @@ public:
         return true;
     }
 
+    MergeType merge_type() const override {
+        return MergeType::DIM_BOTH;
+    }
+
     // Execute
     void execute(const ndcoord_t &work_range, const ndcoord_t &, int) override {
 #ifdef CYCLE_PROFILING
@@ -282,6 +286,16 @@ public:
         c.filter = get_type_name<strategy>();
 
         return c;
+    }
+    
+    // Kernel dimensions interface implementation
+    unsigned int get_kernel_output_height() const override {
+        return strategy::out_height();
+    }
+    
+    unsigned int get_kernel_output_width() const override {
+        // For hybrid kernels, the effective output width is _n_block
+        return _n_block;
     }
 };
 

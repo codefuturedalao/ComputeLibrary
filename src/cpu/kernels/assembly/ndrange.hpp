@@ -139,6 +139,11 @@ public:
     {
         return m_sizes[v];
     }
+
+    unsigned int get_total_size_of_dim(unsigned int v) const
+    {
+        return m_totalsizes[v];
+    }
 };
 
 /** NDCoordinate builds upon a range, but specifies a starting position

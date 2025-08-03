@@ -266,7 +266,7 @@ bool find_implementation(const GemmArgs &args, const OutputStage &os, const Gemm
 
         /* Test the cycle estimate */
         uint64_t estimate = i->do_cycle_estimate(args, os);
-        // std::cout << "Impl Name : " << i->name << " , " << estimate << std::endl;
+        // std::cout << "GEMM Impl Name : " << i->name << " , " << estimate << std::endl;
 
         /* Short circuit - if the estimate is zero, return this one immediately. */
         if (estimate==0) {
@@ -274,12 +274,13 @@ bool find_implementation(const GemmArgs &args, const OutputStage &os, const Gemm
             return true;
         }
 
-        if (strcmp(i->name, "a64_hybrid_fp32_mla_6x16") == 0) {
-        //if (strcmp(i->name, "a64_sgemm_8x12") == 0) {
-            // std::cout << "best ipick : " << i->name << std::endl;
-            impl=i;
-            return true;
-        }
+        // if (strcmp(i->name, "a64_hybrid_fp32_mla_6x16") == 0) {
+        // if (strcmp(i->name, "a64_hybrid_fp32_mla_4x24") == 0) {
+        // if (strcmp(i->name, "a64_sgemm_8x12") == 0) {
+        //     // std::cout << "best ipick : " << i->name << std::endl;
+        //     impl=i;
+        //     return true;
+        // }
 
         /* Otherwise, remember this is our best so far if we don't yet have
          * a valid candidate, or we beat the estimate.  */
@@ -336,7 +337,7 @@ UniqueGemmCommon<Tlop, Trop, Tret> gemm(const GemmArgs &args, const OutputStage 
     const GemmImplementation<Tlop, Trop, Tret, OutputStage> *impl;
 
     if (find_implementation<Tlop, Trop, Tret, OutputStage>(args, os, impl)) {
-        //std::cout << "Best: " << impl->name << std::endl;
+        // std::cout << "Best: " << impl->name << std::endl;
         return UniqueGemmCommon<Tlop, Trop, Tret>(impl->do_instantiate(args, os));
     }
 

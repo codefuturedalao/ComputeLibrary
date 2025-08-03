@@ -397,10 +397,12 @@ private:
  */
 int main(int argc, char **argv)
 {
-    //auto start = std::chrono::high_resolution_clock::now();
+    auto start = std::chrono::high_resolution_clock::now();
+
     int result = arm_compute::utils::run_example<GraphMobilenetExample>(argc, argv);
-    //auto end = std::chrono::high_resolution_clock::now();
-    //auto duration_graph = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    //std::cout << "graph.run_example time " << duration_graph << std::endl;
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration_graph = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "mobilenet main time " << duration_graph << std::endl;
     return result;
 }

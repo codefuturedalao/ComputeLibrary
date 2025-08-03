@@ -117,6 +117,8 @@ public:
         return _cpus;
     }
 
+    void set_cpu_id(uint32_t cpuid);
+
     CpuModel cpu_model(uint32_t cpuid) const;
     CpuModel cpu_model() const;
     uint32_t num_cpus() const;
@@ -125,6 +127,7 @@ public:
 private:
     CpuIsaInfo            _isa{};
     std::vector<CpuModel> _cpus{};
+    uint32_t _cpu_id = 0;   //for kernel transformation, default is little core(0)
 };
 
 /** Some systems have both big and small cores, this fuction computes the minimum number of cores

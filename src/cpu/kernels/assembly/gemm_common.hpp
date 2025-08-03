@@ -30,6 +30,7 @@
 #include "convolution_parameters.hpp"
 #include "ndrange.hpp"
 #include <cstddef>
+#include <iostream>
 
 namespace arm_gemm
 {
@@ -46,6 +47,12 @@ struct Requantize32;
 
 // The real GemmCommon class is templated based on the operand and return
 // type.  This is an interface class which is independent of those types.
+enum class MergeType {
+    NONE,
+    DIM_X,
+    DIM_BOTH
+};
+
 class IGemmCommon
 {
 public:
@@ -92,6 +99,11 @@ public:
     virtual bool supports_dynamic_scheduling() const
     {
         return false;
+    }
+
+    virtual MergeType merge_type() const
+    {
+        return MergeType::NONE;
     }
 
     /** Main execute member fucntion
@@ -183,6 +195,13 @@ public:
     /* Get the configuration of this GEMM */
     virtual GemmConfig get_config() = 0;
 
+    /*** Kernel dimensions interface ***/
+    /* Get the output height (number of rows) this kernel produces per workload */
+    virtual unsigned int get_kernel_output_height() const = 0;
+    
+    /* Get the output width (number of columns) this kernel produces per workload */  
+    virtual unsigned int get_kernel_output_width() const = 0;
+
     // Destructor
     virtual ~IGemmCommon()
     {
@@ -196,6 +215,7 @@ public:
  * 'set_arrays' to capture the provided arguments in protected class
  * members, as essentially any implementation will need these.
  */
+
 template <typename To, typename Tw, typename Tr>
 class GemmCommon : public IGemmCommon
 {

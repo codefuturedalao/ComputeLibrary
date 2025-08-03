@@ -62,9 +62,9 @@ void CpuConvertFullyConnectedWeightsKernel::configure(const ITensorInfo *src,
     _factor2 = (data_layout == DataLayout::NCHW) ? num_channels : num_elems_per_input_plane;
 
     // Configure kernel window
-    std::cout << "x shape is " << src->tensor_shape()[0] << std::endl;
-    std::cout << "y shape is " << src->tensor_shape()[1] << std::endl;
-    std::cout << "z shape is " << src->tensor_shape()[2] << std::endl;
+    // std::cout << "x shape is " << src->tensor_shape()[0] << std::endl;
+    // std::cout << "y shape is " << src->tensor_shape()[1] << std::endl;
+    // std::cout << "z shape is " << src->tensor_shape()[2] << std::endl;
     Window win = calculate_max_window(*src, Steps());
     ICpuKernel::configure(win);
 }

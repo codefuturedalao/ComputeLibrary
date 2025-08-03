@@ -54,14 +54,6 @@ public:
      */
     static AsyMoScheduler &get();
 
-    /* Put the scheduling_mode in AsyMoScheduler instead of IScheduler for two reasons:
-        1. Compilation Time, IScheduler.h alwAsy make a lots of files to be recompile
-        2. This Feature is unstable and should be a feature of AsyMoScheduler instead of IScheduler
-    */
-    static bool scheduling_mode;
-    static void set_scheduling_mode(bool scheduling_mode);
-    std::string _original_governor;
-
     // Inherited functions overridden
     void         set_num_threads(unsigned int num_threads) override;
     void         set_num_threads_with_affinity(unsigned int num_threads, BindFunc func) override;

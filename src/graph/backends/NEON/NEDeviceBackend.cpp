@@ -73,14 +73,41 @@ void NEDeviceBackend::setup_backend_context(GraphContext &ctx)
     /**  Set scheduler */
     //Scheduler::set(std::make_shared<SmartScheduler>());
     Scheduler::set(ctx.config().scheduler);
-    if (ctx.config().scheduler == Scheduler::Type::CUSTOM || ctx.config().scheduler == Scheduler::Type::ASYMO)
+    if (ctx.config().scheduler == Scheduler::Type::CUSTOM || ctx.config().scheduler == Scheduler::Type::ASYMO || ctx.config().scheduler == Scheduler::Type::MNN)
     {
         SmartScheduler::set_scheduling_mode(ctx.config().scheduling_mode);
+        SmartScheduler::set_workload_size(ctx.config().gemm_size);
     }   
+    if (ctx.config().scheduler == Scheduler::Type::CUSTOM) {
+        SmartScheduler::set_kernel_conversion(ctx.config().kernel_conversion);
+    }
 
     // Set number of threads
-    if (ctx.config().num_threads >= 0)
-    {
+    if (ctx.config().num_threads == 8) {
+        std::string affinity = "80,40,20,10,01,02,04,08";
+        auto        func     = [&affinity](int idx, int thread_num) -> std::string
+        {
+            std::vector<std::string> tokens;
+            std::stringstream        ss(affinity);
+            std::string              item;
+            while(std::getline(ss, item, ','))
+            {
+                tokens.push_back(item);
+            }
+            if((int)tokens.size() > thread_num)
+            {
+                std::cout << affinity << std::endl;
+                std::cout << "too much affinity " << tokens.size() << std::endl;
+                return "";
+            }
+            else
+            {
+                //return std::stoi(tokens[idx]);
+                return tokens[idx];
+            }
+        };
+        Scheduler::get().set_num_threads_with_affinity(ctx.config().num_threads, func);
+    } else if (ctx.config().num_threads >= 0) {
         if (!ctx.config().threads_affinity.empty()) {
             std::string affinity = ctx.config().threads_affinity;
             auto func = [&affinity](int idx, int thread_num) -> std::string {

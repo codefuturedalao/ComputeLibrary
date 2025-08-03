@@ -44,15 +44,54 @@ class Window;
 class SmartScheduler final : public IScheduler
 {
 public:
+    class BlockConfig {
+    public:
+        size_t kernels_per_block_height;
+        size_t kernels_per_block_width;
+        size_t total_window_rows;
+        size_t total_window_cols;
+
+        BlockConfig(size_t kernels_per_block_height, size_t kernels_per_block_width, size_t total_window_rows, size_t total_window_cols) {
+            this->kernels_per_block_height = kernels_per_block_height;
+            this->kernels_per_block_width = kernels_per_block_width;
+            this->total_window_rows = total_window_rows;
+            this->total_window_cols = total_window_cols;
+        }
+    };
     class WorkloadWindow {
     public:
-        WorkloadWindow(Window win, size_t dim, size_t id, bool divisible = false) 
-            : window(std::move(win)), split_dimension(dim), id(id), divisible(divisible) {}
+
+        WorkloadWindow(Window win, size_t dim, size_t id, size_t row_idx = 0, size_t column_idx = 0, bool divisible = false) 
+            : window(std::move(win)), split_dimension(dim), id(id), row_idx(row_idx), column_idx(column_idx), divisible(divisible)
+              {}
+        
+        WorkloadWindow(Window win, size_t dim, size_t id, size_t row_idx, size_t column_idx, bool divisible, 
+                      BlockConfig block_config, bool transform) 
+            : window(std::move(win)), split_dimension(dim), id(id), row_idx(row_idx), column_idx(column_idx), divisible(divisible),
+              block_config(block_config), can_transform(transform) {}
+
+        WorkloadWindow(Window win, size_t dim, size_t id, size_t row_idx, size_t column_idx, bool divisible, 
+                      BlockConfig block_config, bool transform, bool is_block, size_t block_row, size_t block_col) 
+            : window(std::move(win)), split_dimension(dim), id(id), row_idx(row_idx), column_idx(column_idx), divisible(divisible),
+              block_config(block_config), can_transform(transform), is_block(is_block), block_row(block_row), block_col(block_col) {}
         
         Window window;
         size_t split_dimension;
         size_t id;
+
+        /* For GemmInterleaved Kernel (use column_idx as threadid)*/
+        size_t row_idx;
+        size_t column_idx;
+
         bool divisible;
+
+        BlockConfig block_config{0, 0, 0, 0};
+        bool can_transform{false};  // Whether this block can be used for kernel conversion
+
+        // MergeType merge_type;
+        bool is_block{false};
+        size_t block_row{0};
+        size_t block_col{0};
     };
     /** Constructor: create a pool of threads. */
     SmartScheduler();
@@ -71,7 +110,11 @@ public:
         2. This Feature is unstable and should be a feature of SmartScheduler instead of IScheduler
     */
     static bool scheduling_mode;
+    static bool kernel_conversion;
+    static int workload_size;
     static void set_scheduling_mode(bool scheduling_mode);
+    static void set_kernel_conversion(bool kernel_conversion);
+    static void set_workload_size(int workload_size);
     std::string _original_governor;
 
     // Inherited functions overridden
@@ -83,9 +126,31 @@ public:
 
     void schedule_common(ICPPKernel *kernel, const Hints &hints, const Window &window, ITensorPack &tensors);
     void run_tagged_workloads(std::vector<Workload> &workloads, const char *tag) override;
+    
+    /** Run workloads with kernel conversion support */
+    void run_with_kernel_conversion(ICPPKernel *primary_kernel, 
+                                   const Hints &hints, 
+                                //    const Window &max_window,
+                                   ITensorPack &tensors);
+                                   // std::function<void(ICPPKernel*, const Window&, const ThreadInfo&)> execute_workload);
+    
+    /** Helper functions for kernel conversion */
+    std::vector<std::vector<unsigned int>> convert_blocks_to_windows(
+        const std::vector<std::pair<unsigned int, unsigned int>> &blocks,
+        unsigned int block_height, unsigned int block_width,
+        unsigned int kernel_height, unsigned int kernel_width,
+        unsigned int matrix_height, unsigned int matrix_width,
+        ICPPKernel *kernel,
+        std::vector<IScheduler::Workload> &unified_workloads,
+        std::vector<WorkloadWindow> &workload_windows);
+
+
 
     std::size_t find_max_num_of_windows(const Window &window, size_t original_split_dimension);
+    std::size_t find_optimal_dimension(ICPPKernel *kernel, const Window &window, size_t original_split_dimension);
     std::size_t adjust_num_of_windows(const Window &window, size_t original_split_dimension, size_t init_num_windows, const ICPPKernel &kernel, const CPUInfo &cpu_info);
+    int find_min_granule_size(ICPPKernel *kernel, const Window &window, size_t original_split_dimension);
+
 //    std::size_t find_best_split_dimension(const Window &window, size_t num_threads, const std::vector<float>& computing_powers);
 //    std::vector<size_t> distribute_workload_by_computing_powers(size_t total_workloads, unsigned int num_threads, const std::vector<float>& computing_powers);
 
@@ -112,6 +177,19 @@ public:
         return _tensors;
     }
 
+    /** Big core operations management */
+    // Submit big core operation to be executed by dedicated thread
+    void submit_big_core_operation(std::function<void()> operation);
+    
+    // Wait for big core operations to complete
+    void wait_for_big_core_operations();
+    
+    // Initialize big core thread (called once during scheduler setup)
+    void init_big_core_thread();
+    
+    // Shutdown big core thread (called during cleanup)
+    void shutdown_big_core_thread();
+
 protected:
     /** Will run the workloads in parallel using num_threads
      *
@@ -127,5 +205,6 @@ private:
     ITensorPack _tensors;
     std::vector<WorkloadWindow> _windows;
 };
+
 } // namespace arm_compute
 #endif /* ARM_COMPUTE_SMARTSCHEDULER_H */

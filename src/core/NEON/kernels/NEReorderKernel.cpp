@@ -58,12 +58,12 @@ void NEReorderKernel::run(const Window &window, const ThreadInfo &info)
                         switch (_output->info()->data_type())
                         {
                             case DataType::F32:
-                                arm_gemm::Transform<4, 1, true, arm_gemm::VLType::None>(
+                                ::arm_gemm::Transform<4, 1, true, ::arm_gemm::VLType::None>(
                                     reinterpret_cast<float *>(_output->buffer()) + jump_rows,
                                     reinterpret_cast<float *>(_input->buffer()), stride, k_start, k_end, 0, _xmax);
                                 break;
                             case DataType::BFLOAT16:
-                                arm_gemm::Transform<4, 4, true, arm_gemm::VLType::None>(
+                                ::arm_gemm::Transform<4, 4, true, ::arm_gemm::VLType::None>(
                                     reinterpret_cast<bfloat16 *>(_output->buffer()) + jump_rows,
                                     reinterpret_cast<float *>(_input->buffer()), stride, k_start, k_end, 0, _xmax);
                                 break;
@@ -78,12 +78,12 @@ void NEReorderKernel::run(const Window &window, const ThreadInfo &info)
                         switch (_output->info()->data_type())
                         {
                             case DataType::F32:
-                                arm_gemm::Transform<1, 1, true, arm_gemm::VLType::SVE>(
+                                ::arm_gemm::Transform<1, 1, true, ::arm_gemm::VLType::SVE>(
                                     reinterpret_cast<float *>(_output->buffer()) + jump_rows,
                                     reinterpret_cast<float *>(_input->buffer()), stride, k_start, k_end, 0, _xmax);
                                 break;
                             case DataType::BFLOAT16:
-                                arm_gemm::Transform<2, 4, true, arm_gemm::VLType::SVE>(
+                                ::arm_gemm::Transform<2, 4, true, ::arm_gemm::VLType::SVE>(
                                     reinterpret_cast<bfloat16 *>(_output->buffer()) + jump_rows,
                                     reinterpret_cast<float *>(_input->buffer()), stride, k_start, k_end, 0, _xmax);
                                 break;
@@ -240,7 +240,7 @@ Status NEReorderKernel::validate(const ITensorInfo        *input,
 #if defined(ARM_COMPUTE_ENABLE_SVE)
             case WeightFormat::OHWIo8:
             {
-                if (Scheduler::get().cpu_info().has_sve() && arm_gemm::utils::get_vector_length<float>() == 8)
+                if (Scheduler::get().cpu_info().has_sve() && ::arm_gemm::utils::get_vector_length<float>() == 8)
                 {
                     ksize = 8;
                 }

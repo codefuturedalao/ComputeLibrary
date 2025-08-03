@@ -154,6 +154,11 @@ public:
     bool supports_dynamic_scheduling() const override {
         return true;
     }
+    
+    MergeType merge_type() const override {
+        return MergeType::DIM_BOTH;
+    }
+
 
     // Execute
     void execute(const ndcoord_t &work_range, const ndcoord_t &, int) override {
@@ -263,6 +268,27 @@ public:
     void set_quantized_bias(const int32_t *bias, size_t bias_multi_stride) override {
         _qp.bias = bias;
         _qp.bias_multi_stride = bias_multi_stride;
+    }
+
+    GemmConfig get_config() override {
+        GemmConfig c;
+
+        c.method = GemmMethod::GEMM_HYBRID_QUANTIZED;
+        c.inner_block_size = _k_block;
+        c.outer_block_size = _n_block;
+        c.filter = get_type_name<strategy>();
+
+        return c;
+    }
+    
+    // Kernel dimensions interface implementation
+    unsigned int get_kernel_output_height() const override {
+        return strategy::out_height();
+    }
+    
+    unsigned int get_kernel_output_width() const override {
+        // For hybrid quantized inline kernels, the effective output width is _n_block
+        return _n_block;
     }
 
     void update_quantization_parameters(const Requantize32 &re) override {

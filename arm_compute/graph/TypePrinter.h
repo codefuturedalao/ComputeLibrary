@@ -74,6 +74,9 @@ inline ::std::ostream &operator<<(::std::ostream &os, const CPUScheduler &schedu
         case CPUScheduler::ASYMO:
             os << "ASYMO";
             break;
+        case CPUScheduler::MNN:
+            os << "MNN";
+            break;
         case CPUScheduler::CUSTOM:
             os << "CUSTOM(Smart)";
             break;

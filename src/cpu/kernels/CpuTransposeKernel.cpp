@@ -402,10 +402,10 @@ void transpose_32bit_elements(const ITensor *in, ITensor *out, const Window &win
     bool left_over_loop_y = (((window_end_y - window_start_y) % window_step_y) != 0);
     //std::cout << "left_over_loop_y" << std::to_string(left_over_loop_y) << std::endl;
     //int numeration_y = window.num_iterations(1); 
-    if(left_over_loop_y == 1) {
-        std::cout << "[transpose_32bit_elements] end_y---> " << window_end_y << std::endl;
-        std::cout << "[transpose_32bit_elements] start_y--->" << window_start_y << std::endl;
-    }
+    // if(left_over_loop_y == 1) {
+    //     std::cout << "[transpose_32bit_elements] end_y---> " << window_end_y << std::endl;
+    //     std::cout << "[transpose_32bit_elements] start_y--->" << window_start_y << std::endl;
+    // }
 
     Window window_in(window);
     window_in.set(Window::DimX, Window::Dimension(0, 1, 1));

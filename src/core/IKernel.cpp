@@ -57,6 +57,11 @@ bool IKernel::can_merge_window() const
     return false;
 }
 
+MergeType IKernel::merge_type() const
+{
+    return MergeType::NONE;
+}
+
 void IKernel::configure(const Window &window)
 {
     _window = window;

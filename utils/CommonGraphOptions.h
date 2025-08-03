@@ -96,8 +96,10 @@ struct CommonGraphParams
     bool                             help{false};
     int                              threads{0};
     std::string                      threads_affinity{};
-    arm_compute::graph::CPUScheduler scheduler{arm_compute::graph::CPUScheduler::CPP};
+    arm_compute::graph::CPUScheduler scheduler{arm_compute::graph::CPUScheduler::ASYMO};
     bool scheduling_mode{false};
+    bool kernel_conversion{false};
+    int gemm_size{-1};
     int                              batches{1};
     arm_compute::graph::Target       target{arm_compute::graph::Target::NEON};
     arm_compute::DataType            data_type{DataType::F32};
@@ -160,6 +162,8 @@ public:
     SimpleOption<std::string>                      *threads_affinity;
     EnumOption<arm_compute::graph::CPUScheduler> *scheduler;           /**< Graph execution target */
     ToggleOption                           *scheduling_mode;     /**< Enable tuner */
+    ToggleOption                           *kernel_conversion;  /**< Enable kernel conversion */
+    SimpleOption<int>                      *gemm_size;          /**< GEMM size */
 
     SimpleOption<int>                      *batches;          /**< Number of batches */
     EnumOption<arm_compute::graph::Target> *target;           /**< Graph execution target */

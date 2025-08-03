@@ -35,8 +35,12 @@
 #include "src/cpu/kernels/assembly/CpuGemmAssemblyWrapperKernel.h"
 #include "src/cpu/operators/CpuTranspose.h"
 #include "src/cpu/utils/CpuAuxTensorHandler.h"
+#include "src/runtime/CPP/KernelConverter.h"
 
 #include <arm_neon.h>
+
+// Bring arm_gemm types into scope
+// using namespace arm_gemm;
 
 namespace arm_compute
 {
@@ -222,13 +226,13 @@ Params extract_parameters(const ITensorInfo *a, const ITensorInfo *b, const ITen
     return p;
 }
 
-IScheduler::Hints scheduling_hint_heuristic(arm_gemm::GemmMethod method, DataType data_type)
+IScheduler::Hints scheduling_hint_heuristic(arm_gemm::GemmMethod method, arm_compute::DataType data_type)
 {
     // Schedule assembly kernel
     const int         granule_threshold = 200;
     IScheduler::Hints scheduling_hint   = IScheduler::Hints(Window::DimX);
     if (SmartScheduler::scheduling_mode) {
-        scheduling_hint = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, 128);
+        scheduling_hint = IScheduler::Hints(Window::DimX, IScheduler::StrategyHint::DYNAMIC, 2000);
         //std::cout << "CpuGemmAssemblyDispatch scheduling_hint_dynamic" << std::endl;
     }
     if (method == arm_gemm::GemmMethod::GEMM_INTERLEAVED && data_type == DataType::F32)
@@ -296,6 +300,12 @@ public:
       */
     std::tuple<bool, const int32_t *, const int32_t *, const int32_t *>
     set_requantize_data(const std::vector<int32_t> &shifts, const std::vector<int32_t> &multipliers);
+    INEKernel * get_optimised_kernel() const;
+    std::pair<unsigned int, unsigned int> get_kernel_output_dims() const override;
+    std::string get_kernel_name() const override {
+        return _kernel_info.name;
+    }
+    void schedule() override;
 
     // Inherited methods overridden:
     void                             run(ITensorPack &tensors) override;
@@ -374,7 +384,8 @@ private:
     /** Operator to transpose B before gemm or pretranspose_B_array*/
     std::unique_ptr<CpuTranspose> _pre_pretranspose_b{nullptr};
     /** Assembly Gemm kernel */
-    std::shared_ptr<arm_gemm::GemmCommon<TypeInput, TypeWeight, TypeOutput>> _gemm_kernel_asm{nullptr};
+    std::shared_ptr<arm_gemm::GemmCommon<TypeInput, TypeWeight, TypeOutput>> _gemm_kernel_asm{nullptr};         //default on little cores
+    std::shared_ptr<arm_gemm::GemmCommon<TypeInput, TypeWeight, TypeOutput>> _gemm_kernel_asm_big{nullptr};    //big cores
     /** Optimised Arm® Neon™ kernel */
     std::unique_ptr<INEKernel> _optimised_kernel{nullptr};
     /** Assembly GEMM workspace tensor info */
@@ -406,6 +417,34 @@ private:
     bool                                  _is_c_constant{true};
     bool                                  _run_pre_pretranspose_b{false};
     bool                                  _B_pre_pretranspose_required{false};
+    
+    // Kernel conversion support
+    bool                                                     _kernel_conversion_enabled{false};
+    INEKernel*                                               _alternate_gemm{nullptr};
+    std::pair<unsigned int, unsigned int>                    _primary_kernel_dims{0, 0};
+    std::pair<unsigned int, unsigned int>                    _alternate_kernel_dims{0, 0};
+    std::pair<unsigned int, unsigned int>                    _output_matrix_dims{0, 0};
+    IScheduler::Hints                                        _scheduling_hint{Window::DimX};
+
+public:
+    /** Set kernel conversion parameters
+     *
+     * @param[in] alternate_gemm     Pointer to alternate GEMM kernel
+     * @param[in] primary_dims       Primary kernel dimensions (height, width)
+     * @param[in] alternate_dims     Alternate kernel dimensions (height, width)
+     * @param[in] matrix_dims        Output matrix dimensions (height, width)
+     */
+    void set_kernel_conversion(INEKernel *alternate_gemm,
+                              const std::pair<unsigned int, unsigned int> &primary_dims,
+                              const std::pair<unsigned int, unsigned int> &alternate_dims,
+                              const std::pair<unsigned int, unsigned int> &matrix_dims)
+    {
+        _kernel_conversion_enabled = (alternate_gemm != nullptr);
+        _alternate_gemm = alternate_gemm;
+        _primary_kernel_dims = primary_dims;
+        _alternate_kernel_dims = alternate_dims;
+        _output_matrix_dims = matrix_dims;
+    }
 };
 
 template <typename TypeInput, typename TypeWeight, typename TypeOutput, class OutputStage>
@@ -570,7 +609,16 @@ void Fallback<TypeInput, TypeWeight, TypeOutput, OutputStage>::configure(const I
     _is_b_constant = b->are_values_constant();
     _is_c_constant = c ? c->are_values_constant() : true;
 
+    std::cout << "Gemm fallback configure" << std::endl;
     _gemm_kernel_asm = arm_gemm::gemm<TypeInput, TypeWeight, TypeOutput, OutputStage>(args, os);
+    _kernel_info = arm_gemm::get_gemm_method<TypeInput, TypeWeight, TypeOutput, OutputStage>(args, os);
+    std::cout << "kernel_info: " << _kernel_info.name << std::endl;
+    
+    // 记录GEMM参数信息
+    std::cout << "GEMM: M=" << args._Msize << " N=" << args._Nsize << " K=" << args._Ksize 
+              << " batches=" << args._nbatches << " multis=" << args._nmulti 
+              << " threads=" << args._maxthreads << std::endl;
+
     if (_gemm_kernel_asm == nullptr)
     {
         //configuration not supported: Leave function unconfigured:
@@ -584,6 +632,8 @@ void Fallback<TypeInput, TypeWeight, TypeOutput, OutputStage>::configure(const I
     ARM_COMPUTE_ERROR_ON(acl_gemm_wrapper == nullptr);
     acl_gemm_wrapper->configure(_gemm_kernel_asm.get(), gemm_cfg.filter);
     const size_t       workspace_size = _gemm_kernel_asm->get_working_size();
+    std::cout << "workspace_size: " << workspace_size << std::endl;             //zero
+
     const unsigned int alignment      = 4096;
     _workspace_info                   = TensorInfo(TensorShape(workspace_size), 1, DataType::U8);
     _aux_mem[AsmGemmWorkspace] =
@@ -744,15 +794,32 @@ bool Fallback<TypeInput, TypeWeight, TypeOutput, OutputStage>::is_configured() c
 }
 
 template <typename TypeInput, typename TypeWeight, typename TypeOutput, class OutputStage>
+INEKernel * Fallback<TypeInput, TypeWeight, TypeOutput, OutputStage>::get_optimised_kernel() const
+{
+    return _optimised_kernel.get();
+}
+
+template <typename TypeInput, typename TypeWeight, typename TypeOutput, class OutputStage>
 experimental::MemoryRequirements Fallback<TypeInput, TypeWeight, TypeOutput, OutputStage>::workspace() const
 {
     return _aux_mem;
 }
 
 template <typename TypeInput, typename TypeWeight, typename TypeOutput, class OutputStage>
+std::pair<unsigned int, unsigned int> Fallback<TypeInput, TypeWeight, TypeOutput, OutputStage>::get_kernel_output_dims() const
+{
+    if (_gemm_kernel_asm) {
+        return std::make_pair(_gemm_kernel_asm->get_kernel_output_height(),
+                             _gemm_kernel_asm->get_kernel_output_width());
+    }
+    return std::make_pair(0, 0);
+}
+
+template <typename TypeInput, typename TypeWeight, typename TypeOutput, class OutputStage>
 void Fallback<TypeInput, TypeWeight, TypeOutput, OutputStage>::run(ITensorPack &tensors)
 {
-    //std::cout << "Fallback run" << std::endl;
+    // std::cout << "Fallback run" << std::endl;
+    // std::cout << "kernel_info: " << _kernel_info.name << std::endl;
     auto a = tensors.get_const_tensor(TensorType::ACL_SRC_0);
     auto b = tensors.get_const_tensor(TensorType::ACL_SRC_1);
     auto c = tensors.get_const_tensor(TensorType::ACL_SRC_2);
@@ -851,7 +918,24 @@ void Fallback<TypeInput, TypeWeight, TypeOutput, OutputStage>::run(ITensorPack &
         }
     }
 
-    const auto scheduling_hint = scheduling_hint_heuristic(_kernel_info.method, d->info()->data_type());
+    auto scheduling_hint = scheduling_hint_heuristic(_kernel_info.method, d->info()->data_type());
+    
+    // Apply kernel conversion if configured
+    if (_kernel_conversion_enabled && _alternate_gemm) {
+        // Set kernel conversion in scheduling hints using stored dimensions
+        scheduling_hint.set_kernel_conversion(
+            _alternate_gemm,
+            _primary_kernel_dims.first, _primary_kernel_dims.second,
+            _alternate_kernel_dims.first, _alternate_kernel_dims.second,
+            _output_matrix_dims.first, _output_matrix_dims.second
+        );
+        
+        // std::cout << "Kernel conversion enabled in Fallback::run: "
+        //          << "Primary(" << _primary_kernel_dims.first << "x" << _primary_kernel_dims.second << ") -> "
+        //          << "Alternate(" << _alternate_kernel_dims.first << "x" << _alternate_kernel_dims.second << ")" 
+        //          << " Matrix(" << _output_matrix_dims.first << "x" << _output_matrix_dims.second << ")" << std::endl;
+    }
+    _scheduling_hint = scheduling_hint;
 
     // Set workspace if needed and reset number of threads as buffer manager gets re-created with max_threads
     CpuAuxTensorHandler workspace(offset_int_vec(AsmGemmWorkspace), _workspace_info, tensors, false);
@@ -881,6 +965,7 @@ void Fallback<TypeInput, TypeWeight, TypeOutput, OutputStage>::run(ITensorPack &
     TypeOutput *bias = nullptr;
     if (c && c->info()->data_type() != DataType::S32)
     {
+        // std::cout << "c->buffer(): " << reinterpret_cast<void *>(c->buffer()) << ", c->info()->offset_first_element_in_bytes(): " << c->info()->offset_first_element_in_bytes() << std::endl;
         bias = reinterpret_cast<TypeOutput *>(c->buffer() + c->info()->offset_first_element_in_bytes());
     }
 
@@ -895,12 +980,37 @@ void Fallback<TypeInput, TypeWeight, TypeOutput, OutputStage>::run(ITensorPack &
     // Set gemm parameters
     _gemm_kernel_asm->set_arrays(in0_ptr, lda, batch_stride_a, multi_stride_a, in1_ptr, ldb, multi_stride_b, out_ptr,
                                  ldd, batch_stride_d, multi_stride_d, bias, 0);
+
+    // std::cout << "in0_ptr: " << in0_ptr << ", lda: " << lda << ", batch_stride_a: " << batch_stride_a << ", multi_stride_a: " << multi_stride_a << ", in1_ptr: " << in1_ptr << ", ldb: " << ldb << ", multi_stride_b: " << multi_stride_b << ", out_ptr: " << out_ptr << ", ldd: " << ldd << ", batch_stride_d: " << batch_stride_d << ", multi_stride_d: " << multi_stride_d << ", bias: " << bias << std::endl;
+    // 记录调度窗口的维度信息
+}
+
+template <typename TypeInput, typename TypeWeight, typename TypeOutput, class OutputStage>
+void Fallback<TypeInput, TypeWeight, TypeOutput, OutputStage>::schedule()
+{
+    // const Window& schedule_window = _optimised_kernel->window();
+    // std::cout << "Schedule split_dim: " << _scheduling_hint.split_dimension() << std::endl;
+    
+    // for (size_t dim = 0; dim < Coordinates::num_max_dimensions; ++dim)
+    // {
+        // const auto& dimension = schedule_window[dim];
+        // std::cout << "Schedule Dim" << dim << ": start=" << dimension.start() 
+        //           << " end=" << dimension.end() 
+        //           << " step=" << dimension.step()
+        //           << " iterations=" << schedule_window.num_iterations(dim);
+        // if (schedule_window.is_broadcasted(dim)) {
+        //     std::cout << " [broadcasted]";
+        // }
+        // std::cout << std::endl;
+    // }
+
     // Schedule
-    NEScheduler::get().schedule(_optimised_kernel.get(), scheduling_hint);
+    NEScheduler::get().schedule(_optimised_kernel.get(), _scheduling_hint);
+
 }
 
 template <typename TypeInput, typename TypeWeight, typename TypeOutput>
-void create_arm_gemm(std::unique_ptr<CpuGemmAssemblyDispatch::IFallback> &arm_gemm,
+arm_gemm::GemmArgs create_arm_gemm(std::unique_ptr<CpuGemmAssemblyDispatch::IFallback> &arm_gemm,
                      const ITensorInfo                                   *a,
                      const ITensorInfo                                   *b,
                      const ITensorInfo                                   *c,
@@ -921,6 +1031,8 @@ void create_arm_gemm(std::unique_ptr<CpuGemmAssemblyDispatch::IFallback> &arm_ge
     auto fallback = std::make_unique<Fallback<TypeInput, TypeWeight, TypeOutput>>();
     fallback->configure(a, b, c, d, args, info);
     arm_gemm = std::move(fallback);
+
+    return args;
 }
 
 template <typename TypeInput, typename TypeWeight, typename TypeOutput>
@@ -1008,6 +1120,10 @@ void create_arm_gemm_quant(std::unique_ptr<CpuGemmAssemblyDispatch::IFallback> &
 } //namespace
 
 CpuGemmAssemblyDispatch::CpuGemmAssemblyDispatch() : _arm_gemm(nullptr)
+{
+}
+
+CpuGemmAssemblyDispatch::~CpuGemmAssemblyDispatch()
 {
 }
 
@@ -1200,8 +1316,65 @@ void CpuGemmAssemblyDispatch::configure(
 
     switch (a->data_type())
     {
-        case DataType::F32:
-            create_arm_gemm<float, float, float>(_arm_gemm, a, b, c, d, act, info);
+        case DataType::F32: {
+            std::cout << "----------------CpuGemmAssemblyDispatch::configure-----------------------" << std::endl;
+            // Create primary GEMM (for little cores)
+            if (SmartScheduler::kernel_conversion) {
+                SmartScheduler::get().wait_for_big_core_operations();
+            }
+
+            auto args = create_arm_gemm<float, float, float>(_arm_gemm, a, b, c, d, act, info);
+            // Start big core GEMM creation and configuration in background thread
+            if (SmartScheduler::kernel_conversion) {
+            SmartScheduler::get().submit_big_core_operation([this, a, b, c, d, act, info, args]() {
+                // Create alternate GEMM (for big cores) 
+                CPUInfo::get().set_cpu_model(4);    //confirmed: work
+
+                create_arm_gemm<float, float, float>(_arm_gemm_big, a, b, c, d, act, info);
+                // Reset the cpu model to little cores
+                CPUInfo::get().set_cpu_model(0);
+                
+                // Set up kernel conversion hints if both GEMMs are configured
+                if (_arm_gemm && _arm_gemm->is_configured() && _arm_gemm_big && _arm_gemm_big->is_configured()) {
+                    // Extract matrix dimensions from tensor info
+                    unsigned int output_height = args._Msize;
+                    unsigned int output_width = args._Nsize;
+                    
+                    // Get actual kernel dimensions from the GEMM objects using the public interface
+                    auto primary_dims = _arm_gemm->get_kernel_output_dims();
+                    auto alternate_dims = _arm_gemm_big->get_kernel_output_dims();
+                    
+                             
+                    // Configure kernel conversion in the primary fallback
+                    auto primary_fallback = dynamic_cast<Fallback<float, float, float>*>(_arm_gemm.get());
+                    auto alternate_fallback = dynamic_cast<Fallback<float, float, float>*>(_arm_gemm_big.get());
+
+                    if (primary_fallback && alternate_fallback && 
+                        primary_fallback->get_optimised_kernel() && alternate_fallback->get_optimised_kernel() &&
+                        (primary_dims.first != alternate_dims.first ||
+                        // primary_dims.second != alternate_dims.second || output_height == 3136) && false) {
+                        // primary_dims.second != alternate_dims.second || output_height == 3136)) {
+                        primary_dims.second != alternate_dims.second)) {
+                        
+                        std::cout << "Setting up kernel conversion with actual dimensions: " 
+                             << "Primary(" << primary_dims.first << "x" << primary_dims.second << ") "
+                             << "Alternate(" << alternate_dims.first << "x" << alternate_dims.second << ") "
+                             << "Matrix(" << output_height << "x" << output_width << ")" << std::endl;
+                        // Set kernel conversion parameters in the primary fallback
+                        primary_fallback->set_kernel_conversion(
+                            alternate_fallback->get_optimised_kernel(),
+                            primary_dims,
+                            alternate_dims,
+                            std::make_pair(output_height, output_width)
+                        );
+                        
+                        // Store for CpuGemmAssemblyDispatch level tracking
+                        _kernel_conversion_enabled = true;
+                    }
+                }
+                });
+            }
+        }
             break;
 #ifdef __aarch64__
         case DataType::U8:
@@ -1262,12 +1435,26 @@ void CpuGemmAssemblyDispatch::configure(
         default:
             break;
     }
+    
+    // Wait for big core operations to complete if they were started
+
 }
 
 void CpuGemmAssemblyDispatch::prepare(ITensorPack &tensors)
 {
     ARM_COMPUTE_ERROR_ON(_arm_gemm == nullptr);
+    if (SmartScheduler::kernel_conversion) {
+        SmartScheduler::get().wait_for_big_core_operations();
+        SmartScheduler::get().submit_big_core_operation([this, &tensors]() {
+            if (_arm_gemm_big) {
+                _arm_gemm_big->prepare(tensors);
+            }
+        });
+    }
+
+    // Prepare primary GEMM in main thread
     _arm_gemm->prepare(tensors);
+    
 }
 
 bool CpuGemmAssemblyDispatch::is_configured() const
@@ -1278,7 +1465,35 @@ bool CpuGemmAssemblyDispatch::is_configured() const
 void CpuGemmAssemblyDispatch::run(ITensorPack &tensors)
 {
     ARM_COMPUTE_ERROR_ON(_arm_gemm == nullptr);
+    std::cout << "\033[1;36m--------------------------------\033[0m" << std::endl;
+    if (_kernel_conversion_enabled) {
+        std::cout << "\033[1;36mCpuGemmAssemblyDispatch::run with kernel conversion enabled from " << _arm_gemm->get_kernel_name() << " to " << _arm_gemm_big->get_kernel_name() << "\033[0m" << std::endl;
+    } else {
+        std::cout << "\033[1;36mCpuGemmAssemblyDispatch::run with kernel conversion disabled\033[0m" << std::endl;
+    }
+    
+    // Start big core run in background thread
+    if (SmartScheduler::kernel_conversion) {
+        SmartScheduler::get().wait_for_big_core_operations();
+
+        SmartScheduler::get().submit_big_core_operation([this, &tensors]() {
+            if (_arm_gemm_big) {
+                _arm_gemm_big->run(tensors);
+            }
+        });
+    }
+
+
+    // Run primary GEMM in main thread
     _arm_gemm->run(tensors);
+
+    if (SmartScheduler::kernel_conversion) {
+        SmartScheduler::get().wait_for_big_core_operations();
+    }
+    
+    // Now schedule the primary GEMM
+    _arm_gemm->schedule();
+    // _arm_gemm_big->schedule();
 }
 
 experimental::MemoryRequirements CpuGemmAssemblyDispatch::workspace() const
@@ -1296,5 +1511,6 @@ void CpuGemmAssemblyDispatch::update_quantization_parameters(const GEMMLowpOutpu
     ARM_COMPUTE_ERROR_ON(_arm_gemm == nullptr);
     _arm_gemm->update_quantization_parameters(output_info, a, b, is_prepared, negated_offsets);
 }
+
 } // namespace cpu
 } // namespace arm_compute

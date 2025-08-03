@@ -915,6 +915,7 @@ target_sources(
 	runtime/CPP/CPPScheduler.cpp
 	runtime/CPP/SmartScheduler.cpp
 	runtime/CPP/AsyMoScheduler.cpp
+	runtime/CPP/MNNScheduler.cpp
 	runtime/CPP/ICPPSimpleFunction.cpp
 	runtime/CPP/SingleThreadScheduler.cpp
 	runtime/CPP/functions/CPPBoxWithNonMaximaSuppressionLimit.cpp

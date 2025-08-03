@@ -114,7 +114,7 @@ void CpuDepthwiseConv2dAssemblyDispatch::run(ITensorPack &tensors)
     auto split_dimension = _pImpl->asm_kernel->window().num_iterations(Window::DimZ) != 1 ? Window::DimZ : Window::DimW;
     auto iterations = _pImpl->asm_kernel->window().num_iterations(split_dimension);
     if (SmartScheduler::scheduling_mode) {
-        IScheduler::Hints scheduling_hint = IScheduler::Hints(split_dimension, IScheduler::StrategyHint::DYNAMIC, iterations);
+        IScheduler::Hints scheduling_hint = IScheduler::Hints(split_dimension, IScheduler::StrategyHint::DYNAMIC, iterations / 8);
         NEScheduler::get().schedule_op(_pImpl->asm_kernel.get(), scheduling_hint, _pImpl->asm_kernel->window(), tensors);
     } else {
         NEScheduler::get().schedule_op(_pImpl->asm_kernel.get(), split_dimension, _pImpl->asm_kernel->window(), tensors);

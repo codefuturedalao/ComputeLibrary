@@ -109,6 +109,8 @@ public:
 
     bool can_merge_window() const override;
 
+    MergeType merge_type() const override;
+
 private:
     const ITensor *_input_weights;
     const ITensor *_input_bias;

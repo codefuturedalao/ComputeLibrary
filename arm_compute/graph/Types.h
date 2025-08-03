@@ -101,6 +101,8 @@ struct GraphConfig
     std::string threads_affinity{};
     Scheduler::Type scheduler{};
     bool scheduling_mode{false};
+    bool kernel_conversion{false};
+    int gemm_size{-1};
     std::string   tuner_file{"acl_tuner.csv"};         /**< File to load/store tuning values from */
     std::string   mlgo_file{"heuristics.mlgo"};        /**< Filename to load MLGO heuristics from */
     CLBackendType backend_type{CLBackendType::Native}; /**< CL backend type to use */
@@ -121,6 +123,7 @@ enum class CPUScheduler
     CPP,   /**< C++11 threads. */
     OMP,   /**< OpenMP. */
     ASYMO, /**< AsyMo. */
+    MNN,   /**< MNN. */
     CUSTOM /**< Provided by the user. */
 };
 

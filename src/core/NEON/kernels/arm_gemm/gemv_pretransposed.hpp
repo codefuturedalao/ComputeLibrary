@@ -257,6 +257,16 @@ public:
         return c;
     }
 
+    // Kernel dimensions interface implementation
+    unsigned int get_kernel_output_height() const override {
+        // GEMV typically processes 1 output row at a time
+        return 1;
+    }
+    
+    unsigned int get_kernel_output_width() const override {
+        return strategy::out_width();
+    }
+
     void update_quantization_parameters(const Requantize32 &re) override {
         if (std::is_same<OutputStage, Requantize32>::value) {
             Requantize32 *qp = reinterpret_cast<Requantize32 *>(&_os);

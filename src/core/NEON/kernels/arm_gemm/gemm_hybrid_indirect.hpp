@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <iostream>
 
 #include "arm_gemm.hpp"
 #include "bias_adder.hpp"
@@ -38,6 +39,7 @@
 #include "performance_parameters.hpp"
 #include "transform.hpp"
 #include "utils.hpp"
+#include "arm_compute/runtime/CPP/SmartScheduler.h"
 
 #ifdef CYCLE_PROFILING
 #include "profiler.hpp"
@@ -84,6 +86,7 @@ inline void run_hybrid_kernel<Nothing, false, false>::run(
 
     /* Indirect hybrid kernels read the full width of the bias.  So we need to detect the case where we are writing
      * a partial block and pad the bias for that block. */
+    // printf("run_hybrid_kernel\n");
     if (bias_ptr && !accumulate && (N % strategy::out_width() != 0)) {
         /* Break N into "N_bulk" (a multiple of output width) and "N_remainder" */
         unsigned int N_remainder = N % strategy::out_width();
@@ -108,9 +111,13 @@ inline void run_hybrid_kernel<Nothing, false, false>::run(
         memcpy(bias_pad_buffer, bias_ptr + N_bulk, N_remainder * sizeof(Tr));
 
         /* Process the remainder, offsetting the B pointer as needed. */
+        // printf("start kernel\n");
         strat.kernel(num_strings, string_ptr, A_arg, M, N_remainder, b_ptr + (N_bulk * kern_k), offset_output, bias_pad_buffer, act, accumulate);
+        // printf("end kernel\n");
     } else {
+        // printf("else run_hybrid_kernel with num_strings: %d, string_ptr: %p, A_arg: %p, M: %d, N: %d, b_ptr: %p, output_arg: %p, bias_ptr: %p, act: %d, accumulate: %d\n", num_strings, (void *) string_ptr, static_cast<const void *>(A_arg.indirect.ptr), M, N, (void *) b_ptr, static_cast<const void *>(output_arg.indirect.ptr), (void *) bias_ptr, static_cast<int>(act.type), accumulate);
         strat.kernel(num_strings, string_ptr, A_arg, M, N, b_ptr, output_arg, bias_ptr, act, accumulate);
+        // printf("else run_hybrid_kernel end\n");
     }
 }
 
@@ -337,6 +344,13 @@ class GemmHybridIndirect : public GemmCommon<To, Tw, Tr> {
     // New N blocking strategy: if it's narrow, or much taller than it is wide, do the full width.  Otherwise do a
     // single block.
     static unsigned int compute_n_block(const GemmArgs &args, const OutputStage os = {}) {
+
+        // if (arm_compute::SmartScheduler::scheduling_mode) {
+        //     return strategy::out_width();
+        //     // Or we can pass the Nsize out as a parameter
+        //     // return args._Nsize;
+        // }
+
         if (args._cfg && args._cfg->outer_block_size) {
             return args._cfg->outer_block_size;
         }
@@ -415,16 +429,24 @@ public:
 
     // Interface implementation - Compulsory functions
     ndrange_t get_window_size() const override {
-        return { _window_range.total_size() };
+        // std::cout << "GemmHybridIndirect get_window_size: " << _window_range.total_size() << std::endl;
+        // return { _window_range.total_size() };
+        // DimX and DimY is height and width of the output matrix
+        return { _window_range.get_size(0), _window_range.get_size(2), _window_range.get_size(1), _window_range.get_size(3) };
     }
+
 
     // This kernel can always be dynamically scheduled.
     bool supports_dynamic_scheduling() const override {
         return true;
     }
 
+    MergeType merge_type() const override {
+        return MergeType::DIM_X;
+    }
+
     // Execute
-    void execute(const ndcoord_t &work_range, const ndcoord_t &, int) override {
+    void execute(const ndcoord_t &work_range, const ndcoord_t &, int threadid) override {
 #ifdef CYCLE_PROFILING
         profiler prof;
 #endif
@@ -457,6 +479,8 @@ public:
         /* For now, each work item implies all the K for a given output
          * pixel (so we don't need to synchronize access to the output
          * array).  So separate the loop over K blocks here.  */
+        ARM_COMPUTE_UNUSED(threadid);
+        // printf("GemmHybridIndirect threadid: %d _Ktotal, _k_block, _n_block: %d, %d, %d\n", threadid, _Ktotal, _k_block, _n_block);
         for (unsigned int k0=0; k0<_Ktotal; k0+=_k_block) {
             unsigned int kmax   = std::min(k0 + _k_block, _Ktotal);
             unsigned int kern_k = roundup(kmax-k0, strategy::k_unroll());
@@ -482,108 +506,129 @@ public:
                 }
             }
 
-            auto p = _window_range.iterator(work_range.get_position(0), work_range.get_position_end(0));
+            for (unsigned int i = work_range.get_position(3); i < work_range.get_position_end(3); i++) {
+                for (unsigned int k = work_range.get_position(1); k < work_range.get_position_end(1); k++) {
+                    for (unsigned int j = work_range.get_position(2); j < work_range.get_position_end(2); j++) {
+                        int position_start = work_range.get_position(0) + i * _window_range.get_total_size_of_dim(3) + k * _window_range.get_total_size_of_dim(1) + j * _window_range.get_total_size_of_dim(2);
+                        int position_end = work_range.get_position_end(0) + i * _window_range.get_total_size_of_dim(3) + k * _window_range.get_total_size_of_dim(1) + j * _window_range.get_total_size_of_dim(2);
+                        // printf("work_range: (%d, %d) (%d, %d) (%d, %d) (%d, %d)\n", work_range.get_position(0), work_range.get_position_end(0), work_range.get_position(1), work_range.get_position_end(1), work_range.get_position(2), work_range.get_position_end(2), work_range.get_position(3), work_range.get_position_end(3));
+                        // printf("position_start: %d, position_end: %d\n", position_start, position_end);
+                        auto p = _window_range.iterator(position_start, position_end);
 
-            if (p.done()) {
-                return;
+                        if (p.done()) {
+                            return;
+                        }
+
+                        // Process rows either 'out_height' rows at a time, or do all valid rows at once with a single kernel call.
+                        // The separate quantizer path only handles one block of rows at a time (as it has to store sums and intermediate results).
+                        // THe convolution path only generates the pointers for one block of rows at a time.
+                        const bool process_all_rows = (!SeparateQuantize && !_convolver);
+                        // printf("Threadid: %d GemmHybridIndirect work_range: %d %d, (p : %d %d %d %d) process_all_rows: %d, SeparateQuantize: %d, FixedFormat: %d\n", 
+                        //     threadid, work_range.get_position(0), work_range.get_position_end(0), p.dim(0), p.dim(1), p.dim(2), p.dim(3), process_all_rows, SeparateQuantize, FixedFormat);
+
+                        do {
+                            const unsigned int m_start = p.dim(0) * strategy::out_height();
+                            const unsigned int m_end   = process_all_rows ? std::min(p.dim0_max() * strategy::out_height(), _args._Msize) : std::min(m_start + strategy::out_height(), _args._Msize);
+            //                const unsigned int m_end   = std::min(m_start + strategy::out_height(), _args._Msize);
+                            const unsigned int batch   = p.dim(1);
+                            const unsigned int n0      = p.dim(2) * _n_block;
+                            const unsigned int nmax    = std::min(n0 + _n_block, _args._Nsize);
+                            const unsigned int multi   = p.dim(3);
+
+
+                            const Troi *b_panel;
+                            if (FixedFormat) {
+                                b_panel = reinterpret_cast<const Troi *>(this->_Bptr) +
+                                        (multi * this->_B_multi_stride) +
+                                        ((n0 / stripe_width<strategy, FixedFormat>::get()) * this->_ldb) +
+                                        (k0 * stripe_width<strategy, FixedFormat>::get());
+                            } else {
+                                b_panel = _B_transposed +
+                                        (multi * roundup(_args._Nsize, strategy::out_width()) * _Ktotal) +
+                                        (k0 * roundup(_args._Nsize, strategy::out_width())) +
+                                        (n0 * kern_k);
+                            }
+
+                            // printf("m_start, m_end, batch(dim(1)), n_start, nmax, multi: %d, %d, %d, %d, %d, %d\n", m_start, m_end, batch, n0, nmax, multi);
+                            // printf("B_transposed: %p, b_panel: %p\n", (void *) _B_transposed, (void *) b_panel);
+
+                            IndirectOutputArg<Tr> out_arg(this->_Cptr + (multi * this->_C_multi_stride) + (batch * this->_C_batch_stride) + (m_start * this->_ldc) + n0, this->_ldc);
+
+            #ifdef CYCLE_PROFILING
+                            auto p = prof.ScopedProfiler(PROFILE_KERNEL, (unsigned long)(m_end - m_start) * kern_k * roundup(nmax-n0, strategy::out_width()));
+            #endif
+                            if (_indirect_buf) {
+                                // printf("run_hybrid_kernel\n");
+                                run_hybrid_kernel<OutputStage, SeparateQuantize, FixedFormat>::run(
+            #ifdef CYCLE_PROFILING
+                                            prof,
+            #endif
+                                            strat, sections, string_lengths.data(),
+                                            IndirectInputArg<To>(_indirect_buf + (multi * _args._nbatches * _args._Ksections) + (batch * _args._Ksections) + first_section, m_start, first_offset),
+                                            (m_end - m_start), (nmax - n0), kern_k, b_panel, this->_ldb, out_arg,
+                                            (this->_bias && first_pass) ? this->_bias + (multi * this->_bias_multi_stride) + n0 : nullptr,
+                                            last_pass ? _args._act : Activation(),
+                                            !first_pass || _args._accumulate,
+                                            // Quantization parameters
+                                            _os, _col_bias+(multi * _args._Nsize), n0);
+                            } else if (_convolver) {
+                                // printf("process_columns\n");
+                                auto conv_cols = _convolver->process_columns(this->_Aptr + (multi * this->_A_multi_stride) + (batch * this->_A_batch_stride), this->_lda, k0, kmax, _rounded_Ksize);
+
+                                unsigned int pos=0;
+                                auto conv_rows = conv_cols.process_rows(m_start, m_end - m_start);
+
+                                while (!conv_rows.finished()) {
+                                    unsigned int width, conv_offset;
+
+                                    assert(pos < sections);
+
+                                    std::tie(width, conv_offset) = conv_rows.next_block(&(in_row_ptrs[pos * strategy::out_height()]));
+
+                                    if (pos==0) {
+                                        assert(conv_offset == first_offset);
+                                    }
+                                    assert(width == string_lengths[pos]);
+                                    pos++;
+                                }
+                                assert(pos == sections);
+
+                                run_hybrid_kernel<OutputStage, SeparateQuantize, FixedFormat>::run(
+            #ifdef CYCLE_PROFILING
+                                            prof,
+            #endif
+                                            strat, sections, string_lengths.data(),
+                                            IndirectInputArg<To>(in_row_strings.data(), 0, first_offset),
+                                            (m_end - m_start), (nmax - n0), kern_k, b_panel, this->_ldb, out_arg,
+                                            (this->_bias && first_pass) ? this->_bias + (multi * this->_bias_multi_stride) + n0 : nullptr,
+                                            last_pass ? _args._act : Activation(),
+                                            !first_pass || _args._accumulate,
+                                            // Quantization parameters
+                                            _os, _col_bias+(multi * _args._Nsize), n0);
+                            } else {
+                                // Length to process.  This needs to exclude padding, but 'kmax' potentially includes it.
+                                // printf("else situation\n");
+                                const unsigned int len = (std::min(_args._Ksize, kmax) - k0);
+                                // printf("len: %d, this->_bias: %p, first_pass: %d, this->_bias_multi_stride: %d, n0: %d\n", len, (void *) this->_bias, first_pass, this->_bias_multi_stride, n0);
+
+                                run_hybrid_kernel<OutputStage, SeparateQuantize, FixedFormat>::run(
+            #ifdef CYCLE_PROFILING
+                                            prof,
+            #endif
+                                            strat, 1, &len,
+                                            IndirectInputArg<To>(this->_Aptr + (multi * this->_A_multi_stride) + (batch * this->_A_batch_stride) + m_start * this->_lda + k0, this->_lda),
+                                            (m_end - m_start), (nmax - n0), kern_k, b_panel, this->_ldb, out_arg,
+                                            (this->_bias && first_pass) ? this->_bias + (multi * this->_bias_multi_stride) + n0 : nullptr,
+                                            last_pass ? _args._act : Activation(),
+                                            !first_pass || _args._accumulate,
+                                            // Quantization parameters
+                                            _os, _col_bias+(multi * _args._Nsize), n0);
+                            }
+                        } while (process_all_rows ? p.next_dim1() : p.next_dim0());                           
+                    }
+                }
             }
 
-            // Process rows either 'out_height' rows at a time, or do all valid rows at once with a single kernel call.
-            // The separate quantizer path only handles one block of rows at a time (as it has to store sums and intermediate results).
-            // THe convolution path only generates the pointers for one block of rows at a time.
-            const bool process_all_rows = (!SeparateQuantize && !_convolver);
-
-            do {
-                const unsigned int m_start = p.dim(0) * strategy::out_height();
-                const unsigned int m_end   = process_all_rows ? std::min(p.dim0_max() * strategy::out_height(), _args._Msize) : std::min(m_start + strategy::out_height(), _args._Msize);
-//                const unsigned int m_end   = std::min(m_start + strategy::out_height(), _args._Msize);
-                const unsigned int batch   = p.dim(1);
-                const unsigned int n0      = p.dim(2) * _n_block;
-                const unsigned int nmax    = std::min(n0 + _n_block, _args._Nsize);
-                const unsigned int multi   = p.dim(3);
-
-                const Troi *b_panel;
-                if (FixedFormat) {
-                    b_panel = reinterpret_cast<const Troi *>(this->_Bptr) +
-                               (multi * this->_B_multi_stride) +
-                               ((n0 / stripe_width<strategy, FixedFormat>::get()) * this->_ldb) +
-                               (k0 * stripe_width<strategy, FixedFormat>::get());
-                } else {
-                    b_panel = _B_transposed +
-                               (multi * roundup(_args._Nsize, strategy::out_width()) * _Ktotal) +
-                               (k0 * roundup(_args._Nsize, strategy::out_width())) +
-                               (n0 * kern_k);
-                }
-
-                IndirectOutputArg<Tr> out_arg(this->_Cptr + (multi * this->_C_multi_stride) + (batch * this->_C_batch_stride) + (m_start * this->_ldc) + n0, this->_ldc);
-
-#ifdef CYCLE_PROFILING
-                auto p = prof.ScopedProfiler(PROFILE_KERNEL, (unsigned long)(m_end - m_start) * kern_k * roundup(nmax-n0, strategy::out_width()));
-#endif
-                if (_indirect_buf) {
-                    run_hybrid_kernel<OutputStage, SeparateQuantize, FixedFormat>::run(
-#ifdef CYCLE_PROFILING
-                                 prof,
-#endif
-                                 strat, sections, string_lengths.data(),
-                                 IndirectInputArg<To>(_indirect_buf + (multi * _args._nbatches * _args._Ksections) + (batch * _args._Ksections) + first_section, m_start, first_offset),
-                                 (m_end - m_start), (nmax - n0), kern_k, b_panel, this->_ldb, out_arg,
-                                 (this->_bias && first_pass) ? this->_bias + (multi * this->_bias_multi_stride) + n0 : nullptr,
-                                 last_pass ? _args._act : Activation(),
-                                 !first_pass || _args._accumulate,
-                                 // Quantization parameters
-                                 _os, _col_bias+(multi * _args._Nsize), n0);
-                } else if (_convolver) {
-                    auto conv_cols = _convolver->process_columns(this->_Aptr + (multi * this->_A_multi_stride) + (batch * this->_A_batch_stride), this->_lda, k0, kmax, _rounded_Ksize);
-
-                    unsigned int pos=0;
-                    auto conv_rows = conv_cols.process_rows(m_start, m_end - m_start);
-
-                    while (!conv_rows.finished()) {
-                        unsigned int width, conv_offset;
-
-                        assert(pos < sections);
-
-                        std::tie(width, conv_offset) = conv_rows.next_block(&(in_row_ptrs[pos * strategy::out_height()]));
-
-                        if (pos==0) {
-                            assert(conv_offset == first_offset);
-                        }
-                        assert(width == string_lengths[pos]);
-                        pos++;
-                    }
-                    assert(pos == sections);
-
-                    run_hybrid_kernel<OutputStage, SeparateQuantize, FixedFormat>::run(
-#ifdef CYCLE_PROFILING
-                                 prof,
-#endif
-                                 strat, sections, string_lengths.data(),
-                                 IndirectInputArg<To>(in_row_strings.data(), 0, first_offset),
-                                 (m_end - m_start), (nmax - n0), kern_k, b_panel, this->_ldb, out_arg,
-                                 (this->_bias && first_pass) ? this->_bias + (multi * this->_bias_multi_stride) + n0 : nullptr,
-                                 last_pass ? _args._act : Activation(),
-                                 !first_pass || _args._accumulate,
-                                 // Quantization parameters
-                                 _os, _col_bias+(multi * _args._Nsize), n0);
-                } else {
-                    // Length to process.  This needs to exclude padding, but 'kmax' potentially includes it.
-                    const unsigned int len = (std::min(_args._Ksize, kmax) - k0);
-
-                    run_hybrid_kernel<OutputStage, SeparateQuantize, FixedFormat>::run(
-#ifdef CYCLE_PROFILING
-                                 prof,
-#endif
-                                 strat, 1, &len,
-                                 IndirectInputArg<To>(this->_Aptr + (multi * this->_A_multi_stride) + (batch * this->_A_batch_stride) + m_start * this->_lda + k0, this->_lda),
-                                 (m_end - m_start), (nmax - n0), kern_k, b_panel, this->_ldb, out_arg,
-                                 (this->_bias && first_pass) ? this->_bias + (multi * this->_bias_multi_stride) + n0 : nullptr,
-                                 last_pass ? _args._act : Activation(),
-                                 !first_pass || _args._accumulate,
-                                 // Quantization parameters
-                                 _os, _col_bias+(multi * _args._Nsize), n0);
-                }
-            } while (process_all_rows ? p.next_dim1() : p.next_dim0());
         }
     }
 
@@ -831,6 +876,16 @@ public:
         c.weight_format = get_weight_format(kernel_weight_format<strategy, FixedFormat>::get(), sizeof(To));
 
         return c;
+    }
+
+    // Kernel dimensions interface implementation
+    unsigned int get_kernel_output_height() const override {
+        return strategy::out_height();
+    }
+    
+    unsigned int get_kernel_output_width() const override {
+        // For hybrid kernels, the effective output width is _n_block, not strategy::out_width()
+        return _n_block;
     }
 
     void update_quantization_parameters(const Requantize32 &re) override {

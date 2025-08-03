@@ -107,6 +107,14 @@ public:
 
         return c;
     }
+
+    unsigned int get_kernel_output_height() const override {
+        return _subgemm->get_kernel_output_height();
+    }
+
+    unsigned int get_kernel_output_width() const override {
+        return _subgemm->get_kernel_output_width();
+    }
 };
 
 } // namespace arm_gemm

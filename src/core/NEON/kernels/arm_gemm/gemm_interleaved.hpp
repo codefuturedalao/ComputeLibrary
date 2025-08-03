@@ -421,7 +421,7 @@ struct get_kernel_weight_format<strategy, true, Tro> {
 
 } // anonymous namespace
 
-template<typename strategy, typename Tlo, typename Tro, typename Tr, typename OutputStage=Nothing, bool MergeStep=true, bool FixedFormat=false, bool ForceThreadColumns=false, bool ForceFloatAccumulate=false>
+template<typename strategy, typename Tlo, typename Tro, typename Tr, typename OutputStage=Nothing, bool MergeStep=true, bool FixedFormat=false, bool ForceThreadColumns=true, bool ForceFloatAccumulate=false>
 class GemmInterleaved : public GemmCommon<Tlo, Tro, Tr> {
     typedef typename strategy::lhs_operand_type Tloi;
     typedef typename strategy::rhs_operand_type Troi;
@@ -812,6 +812,9 @@ public:
                       _os() { }
 
     // Interface implementation - Compulsory functions
+    MergeType merge_type() const override {
+        return MergeType::DIM_BOTH;
+    }
 
     // Window size: Only the last thread should do a ragged block, so dole
     // out work in units of out_height.  Factor batches into the window, but
@@ -855,6 +858,7 @@ public:
 
         const auto start = work_range.get_position(0);
         const auto end   = work_range.get_position_end(0);
+        // printf("GemmInterleaved threadid: %d work_range: %d %d\n", threadid, start, end);
 
         /* Translate 'start' and 'end' into a position within the batches and rows. */
         const unsigned int window_per_batch = _Mround / strategy::out_height();
@@ -867,9 +871,13 @@ public:
             const auto start_x = work_range.get_position(1) * strategy::out_width();
             const auto end_x = std::min(work_range.get_position_end(1) * strategy::out_width(), _Nsize);
 
+
             Tri * const c_panel = reinterpret_cast<Tri *>(working_space_bytes + (threadid * get_c_working_size()));
             Tloi * const a_panel = reinterpret_cast<Tloi *>(working_space_bytes + (_maxthreads * get_c_working_size()) +
                                        (threadid * sizeof(Tloi) * get_total_k_depth() * strategy::out_height()));
+
+            // printf("GemmInterleaved threadid: %d work_range: %d %d start_x: %d end_x: %d, c_working_size: %zu\n", 
+                // threadid, work_range.get_position(0), work_range.get_position_end(0), start_x, end_x, get_c_working_size());
 
             for (unsigned int multi=0; multi<_nmulti; multi++) {
                 for (unsigned int k0=0; k0<_Ktotal; k0+=_k_block) {
@@ -1363,6 +1371,15 @@ public:
         c.weight_format = get_weight_format(get_kernel_weight_format<strategy, FixedFormat, Tro>::get(), sizeof(Tro));
 
         return c;
+    }
+
+    // Kernel dimensions interface implementation
+    unsigned int get_kernel_output_height() const override {
+        return strategy::out_height();
+    }
+    
+    unsigned int get_kernel_output_width() const override {
+        return strategy::out_width();
     }
 
 

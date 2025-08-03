@@ -39,6 +39,16 @@
 
 namespace arm_compute
 {
+// Define MergeType enum to match arm_gemm::MergeType
+namespace arm_gemm
+{
+    enum class MergeType
+    {
+        NONE,
+        DIM_X,
+        DIM_BOTH
+    };
+}
 namespace
 {
 bool is_same_lws(cl::NDRange lws0, cl::NDRange lws1)
@@ -443,6 +453,15 @@ public:
     GPUTarget get_target() const
     {
         return _target;
+    }
+
+    /** Return the merge type for this kernel
+     *
+     * @return Merge type for window merging
+     */
+    virtual MergeType merge_type() const
+    {
+        return MergeType::NONE;
     }
 
     /** Get the maximum workgroup size for the device the CLKernelLibrary uses.

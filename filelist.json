@@ -90,6 +90,7 @@
     "threads": [ "src/runtime/CPP/CPPScheduler.cpp" ],
     "omp": [ "src/runtime/OMP/OMPScheduler.cpp"],
     "asymo": [ "src/runtime/CPP/AsyMoScheduler.cpp"],
+    "mnn": [ "src/runtime/CPP/MNNScheduler.cpp"],
     "custom": [ "src/runtime/CPP/SmartScheduler.cpp" ]
   },
   "c_api": {

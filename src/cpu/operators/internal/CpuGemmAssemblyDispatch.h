@@ -74,10 +74,16 @@ class CpuGemmAssemblyDispatch : public ICpuOperator
 public:
     /** Constructor */
     CpuGemmAssemblyDispatch();
-    /** Defautl destructor */
-    ~CpuGemmAssemblyDispatch() = default;
+    /** Default destructor */
+    ~CpuGemmAssemblyDispatch();
 
-    ARM_COMPUTE_DISALLOW_COPY_ALLOW_MOVE(CpuGemmAssemblyDispatch);
+    // Disable copy constructor and assignment operator
+    CpuGemmAssemblyDispatch(const CpuGemmAssemblyDispatch &) = delete;
+    CpuGemmAssemblyDispatch &operator=(const CpuGemmAssemblyDispatch &) = delete;
+    
+    // Disable move constructor and assignment operator due to atomic members
+    CpuGemmAssemblyDispatch(CpuGemmAssemblyDispatch &&) = delete;
+    CpuGemmAssemblyDispatch &operator=(CpuGemmAssemblyDispatch &&) = delete;
 
     class IFallback
     {
@@ -92,9 +98,16 @@ public:
                                                                                 const QuantizationInfo &,
                                                                                 const bool,
                                                                                 const bool) = 0;
+        /** Get kernel output dimensions
+         *
+         * @return Pair of (height, width) that the kernel produces per workload
+         */
+        virtual std::pair<unsigned int, unsigned int> get_kernel_output_dims() const = 0;
+        virtual std::string get_kernel_name() const = 0;
+        virtual void                             schedule() = 0;
         virtual ~IFallback()                                                                = default;
     };
-
+    
 public:
     /** If supported create a Compute Library function else fallback to the arm_gemm function.
      *
@@ -204,6 +217,11 @@ public:
 
 private:
     std::unique_ptr<IFallback> _arm_gemm; /**< Interface for the arm_gemm fallback */
+    std::unique_ptr<IFallback> _arm_gemm_big; /**< Interface for the arm_gemm fallback on big cores */
+    
+    // Kernel conversion support
+    bool                               _kernel_conversion_enabled{false};    /**< Enable kernel conversion */
+    
 };
 } // namespace cpu
 } // namespace arm_compute

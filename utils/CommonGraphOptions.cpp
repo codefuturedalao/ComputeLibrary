@@ -83,6 +83,8 @@ namespace utils
     os << "Threads Affinity: " << common_params.threads_affinity << std::endl;
     os << "Threads Scheduler: " << common_params.scheduler << std::endl;
     os << "Threads Scheduling Mode: " << (common_params.scheduling_mode ? true_str : false_str) << std::endl;
+    os << "Threads Kernel Conversion: " << (common_params.kernel_conversion ? true_str : false_str) << std::endl;
+    os << "GEMM size: " << common_params.gemm_size << std::endl;
     os << "Target : " << common_params.target << std::endl;
     os << "Data type : " << common_params.data_type << std::endl;
     os << "Data layout : " << common_params.data_layout << std::endl;
@@ -126,6 +128,8 @@ CommonGraphOptions::CommonGraphOptions(CommandLineParser &parser)
       //scheduler(parser.add_option<SimpleOption<std::string>>("scheduler")),
       scheduler(),
       scheduling_mode(parser.add_option<ToggleOption>("enable-dynamic-scheduling")),
+      kernel_conversion(parser.add_option<ToggleOption>("enable-kernel-conversion")),
+      gemm_size(parser.add_option<SimpleOption<int>>("gemm-size", -1)),
       batches(parser.add_option<SimpleOption<int>>("batches", 1)),
       target(),
       data_type(),
@@ -166,6 +170,7 @@ CommonGraphOptions::CommonGraphOptions(CommandLineParser &parser)
         CPUScheduler::CPP,
         CPUScheduler::OMP,
         CPUScheduler::ASYMO,
+        CPUScheduler::MNN,
         CPUScheduler::CUSTOM,
     };
 
@@ -182,6 +187,8 @@ CommonGraphOptions::CommonGraphOptions(CommandLineParser &parser)
     threads_affinity->set_help("Affinity of threads to use");
     scheduler->set_help("Scheduler to use");
     scheduling_mode->set_help("Scheduling Mode to use (STATIC or DYNAMIC)");
+    kernel_conversion->set_help("Kernel Conversion to use");
+    gemm_size->set_help("GEMM size to use");
     batches->set_help("Number of batches to use for the inputs");
     target->set_help("Target to execute on");
     data_type->set_help("Data type to use");
@@ -215,6 +222,8 @@ CommonGraphParams consume_common_graph_parameters(CommonGraphOptions &options)
     common_params.threads_affinity   = options.threads_affinity->value();
     common_params.scheduler = options.scheduler->value();
     common_params.scheduling_mode = options.scheduling_mode->value();
+    common_params.kernel_conversion = options.kernel_conversion->value();
+    common_params.gemm_size   = options.gemm_size->value();
     common_params.batches   = options.batches->value();
     common_params.target    = options.target->value();
     common_params.data_type = options.data_type->value();
@@ -249,6 +258,8 @@ arm_compute::graph::GraphConfig consume_common_graph_config(CommonGraphParams &p
     config.threads_affinity = params.threads_affinity;
     config.scheduler = (arm_compute::Scheduler::Type)params.scheduler;
     config.scheduling_mode = params.scheduling_mode;
+    config.kernel_conversion = params.kernel_conversion;
+    config.gemm_size = params.gemm_size;
     config.use_tuner   = params.enable_tuner;
     config.tuner_mode  = params.tuner_mode;
     config.tuner_file  = params.tuner_file;

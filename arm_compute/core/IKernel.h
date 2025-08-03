@@ -29,6 +29,13 @@
 
 namespace arm_compute
 {
+/** Available merge types for kernel window merging */
+enum class MergeType
+{
+    NONE,
+    DIM_X,
+    DIM_BOTH
+};
 /** Common information for all the kernels */
 class IKernel
 {
@@ -67,6 +74,8 @@ public:
      * @return True if the windows can be merged
      */
     virtual bool can_merge_window() const;
+
+    virtual MergeType merge_type() const;
 
 protected:
     /** Configure the kernel's window

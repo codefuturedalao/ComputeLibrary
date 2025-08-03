@@ -117,6 +117,11 @@ CPUModel CPUInfo::get_cpu_model() const
     return _impl->info.cpu_model();
 }
 
+void CPUInfo::set_cpu_model(uint32_t cpuid)
+{
+    _impl->info.set_cpu_id(cpuid);
+}
+
 CPUModel CPUInfo::get_cpu_model(unsigned int cpuid) const
 {
     return _impl->info.cpu_model(cpuid);
